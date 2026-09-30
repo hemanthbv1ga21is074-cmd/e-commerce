@@ -51,10 +51,10 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
   return (
     <Modal isOpen={isOpen} onClose={onClose} title={`Cancel Order #${order.id}`} size="md">
       <form onSubmit={handleSubmit} className="space-y-4 text-xs">
-        <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2.5 text-amber-900">
-          <AlertCircle size={16} className="text-amber-600 flex-shrink-0 mt-0.5" />
+        <div className="p-3.5 bg-amber-50/90 border border-amber-200/90 rounded-xl flex items-start gap-3 text-amber-900 shadow-xs">
+          <AlertCircle size={17} className="text-amber-600 flex-shrink-0 mt-0.5" />
           <div className="space-y-1">
-            <span className="font-bold block">Are you sure you want to cancel this order?</span>
+            <span className="font-bold text-xs block text-amber-950">Are you sure you want to cancel this order?</span>
             <span className="text-[11px] leading-relaxed block text-amber-800">
               Once cancelled, this request cannot be reversed. Any promotional coupons applied to this order will be released back to your account.
             </span>
@@ -62,9 +62,9 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
         </div>
 
         {/* Instant Wallet Refund Highlight */}
-        <div className="p-3.5 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center">
+        <div className="p-3.5 bg-emerald-50/80 border border-emerald-200 rounded-xl flex items-center justify-between shadow-xs">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-full bg-emerald-600 text-white flex items-center justify-center flex-shrink-0 shadow-xs">
               <Wallet size={16} />
             </div>
             <div>
@@ -76,15 +76,17 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
         </div>
 
         {/* Reason Selector */}
-        <div className="space-y-2">
-          <label className="font-bold text-gray-700 block">Please select a reason for cancellation *</label>
+        <div className="space-y-2.5">
+          <label className="font-bold text-gray-800 block text-xs">
+            Please select a reason for cancellation <span className="text-accent">*</span>
+          </label>
           <div className="space-y-2">
             {CANCEL_REASONS.map((reason) => (
               <label
                 key={reason}
-                className={`flex items-center gap-2.5 p-2.5 border rounded-lg cursor-pointer transition-colors ${
+                className={`flex items-center gap-3 p-3 border rounded-xl cursor-pointer transition-all ${
                   selectedReason === reason
-                    ? 'border-accent bg-rose-50/40 text-primary font-semibold'
+                    ? 'border-accent bg-rose-50/40 text-primary font-semibold shadow-xs ring-1 ring-accent/30'
                     : 'border-border hover:bg-gray-50 text-gray-700'
                 }`}
               >
@@ -94,32 +96,32 @@ export const CancelOrderModal: React.FC<CancelOrderModalProps> = ({
                   value={reason}
                   checked={selectedReason === reason}
                   onChange={(e) => setSelectedReason(e.target.value)}
-                  className="accent-accent"
+                  className="accent-accent w-4 h-4 cursor-pointer flex-shrink-0"
                 />
-                <span>{reason}</span>
+                <span className="text-xs leading-tight">{reason}</span>
               </label>
             ))}
           </div>
         </div>
 
         {selectedReason === 'Other reasons' && (
-          <div>
-            <label className="font-bold text-gray-700 block mb-1">Additional details (Optional)</label>
+          <div className="space-y-1.5 animate-fadeIn">
+            <label className="font-bold text-gray-700 block text-xs">Additional details (Optional)</label>
             <textarea
-              rows={2}
+              rows={3}
               value={customComment}
               onChange={(e) => setCustomComment(e.target.value)}
               placeholder="Tell us what went wrong..."
-              className="w-full px-3 py-2 border border-border rounded-md focus:border-accent outline-none text-xs"
+              className="w-full px-3 py-2.5 border border-border rounded-xl focus:border-accent focus:ring-1 focus:ring-accent outline-none text-xs leading-relaxed"
             />
           </div>
         )}
 
-        <div className="pt-2 flex justify-end gap-3 border-t border-gray-100">
-          <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={loading}>
+        <div className="pt-3 flex items-center justify-end gap-3 border-t border-gray-100">
+          <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={loading} className="text-xs px-4">
             Don't Cancel
           </Button>
-          <Button type="submit" variant="accent" size="sm" loading={loading} className="bg-rose-600 hover:bg-rose-700">
+          <Button type="submit" variant="accent" size="sm" loading={loading} className="bg-rose-600 hover:bg-rose-700 text-xs px-4 font-bold shadow-xs">
             Confirm Cancellation
           </Button>
         </div>

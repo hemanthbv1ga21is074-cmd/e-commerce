@@ -268,11 +268,11 @@ export const ReturnExchangeModal: React.FC<ReturnExchangeModalProps> = ({
             <p className="text-[11px] text-gray-600 line-clamp-2">{order.shippingAddress}</p>
           </div>
 
-          <div className="pt-2 flex justify-end gap-3 border-t border-gray-100">
-            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={loading}>
+          <div className="pt-4 flex items-center justify-end gap-3 border-t border-gray-100 mt-2">
+            <Button type="button" variant="outline" size="sm" onClick={onClose} disabled={loading} className="text-xs px-4">
               Cancel
             </Button>
-            <Button type="submit" variant="accent" size="sm" loading={loading}>
+            <Button type="submit" variant="accent" size="sm" loading={loading} className="text-xs px-4 font-bold shadow-xs">
               Confirm {actionType === 'exchange' ? 'Exchange' : 'Return'}
             </Button>
           </div>

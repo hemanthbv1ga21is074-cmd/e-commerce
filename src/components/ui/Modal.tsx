@@ -8,6 +8,7 @@ interface ModalProps {
   title?: string;
   children: React.ReactNode;
   className?: string;
+  bodyClassName?: string;
   size?: 'sm' | 'md' | 'lg' | 'xl';
 }
 
@@ -17,6 +18,7 @@ export const Modal: React.FC<ModalProps> = ({
   title,
   children,
   className,
+  bodyClassName,
   size = 'md',
 }) => {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -114,7 +116,9 @@ export const Modal: React.FC<ModalProps> = ({
             <X size={20} />
           </button>
         )}
-        <div className="overflow-y-auto max-h-[80vh]">{children}</div>
+        <div className={cn('p-5 sm:p-6 overflow-y-auto max-h-[calc(85vh-65px)]', bodyClassName)}>
+          {children}
+        </div>
       </div>
     </div>
   );
