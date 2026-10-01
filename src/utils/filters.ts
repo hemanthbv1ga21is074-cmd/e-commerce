@@ -30,11 +30,15 @@ export function parseQueryString(search: string): Partial<FilterState> {
   const params = new URLSearchParams(search);
   const state: Partial<FilterState> = {};
 
-  const brands = params.get('brand');
-  if (brands) state.brands = brands.split(',');
+  const brands = params.get('brand') || params.get('brands');
+  if (brands && brands.toLowerCase() !== 'all') {
+    state.brands = brands.split(',').filter((b) => b && b.toLowerCase() !== 'all');
+  }
 
-  const categories = params.get('category');
-  if (categories) state.categories = categories.split(',');
+  const categories = params.get('category') || params.get('categories');
+  if (categories && categories.toLowerCase() !== 'all') {
+    state.categories = categories.split(',').filter((c) => c && c.toLowerCase() !== 'all');
+  }
 
   const price = params.get('price');
   if (price) {
@@ -42,25 +46,25 @@ export function parseQueryString(search: string): Partial<FilterState> {
     if (!isNaN(min) && !isNaN(max)) state.priceRange = [min, max];
   }
 
-  const colors = params.get('color');
+  const colors = params.get('color') || params.get('colors');
   if (colors) state.colors = colors.split(',');
 
-  const sizes = params.get('size');
+  const sizes = params.get('size') || params.get('sizes');
   if (sizes) state.sizes = sizes.split(',');
 
-  const discount = params.get('discount');
+  const discount = params.get('discount') || params.get('discountMin');
   if (discount) state.discountMin = Number(discount);
 
-  const rating = params.get('rating');
+  const rating = params.get('rating') || params.get('ratingMin');
   if (rating) state.ratingMin = Number(rating);
 
-  const fits = params.get('fit');
+  const fits = params.get('fit') || params.get('fits');
   if (fits) state.fits = fits.split(',');
 
-  const fabrics = params.get('fabric');
+  const fabrics = params.get('fabric') || params.get('fabrics');
   if (fabrics) state.fabrics = fabrics.split(',');
 
-  const occasions = params.get('occasion');
+  const occasions = params.get('occasion') || params.get('occasions');
   if (occasions) state.occasions = occasions.split(',');
 
   const sort = params.get('sort') as SortOption | null;

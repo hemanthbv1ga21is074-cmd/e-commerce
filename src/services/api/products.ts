@@ -40,6 +40,32 @@ interface ApiProductsResponse {
 
 
 
+/* ─── Category Slug Matcher ─── */
+export function matchCategorySlug(product: Product, categorySlug: string): boolean {
+  if (!categorySlug) return true;
+  const rawSlug = categorySlug.toLowerCase().trim();
+  const slugWords = rawSlug.replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+
+  if (product.slug.toLowerCase().includes(rawSlug)) return true;
+
+  return product.categoryPath.some((cat) => {
+    const rawCat = cat.toLowerCase();
+    const catSlugNormalized = rawCat.replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const simpleCat = rawCat.replace(/[^a-z0-9]+/g, '');
+    const simpleSlug = rawSlug.replace(/[^a-z0-9]+/g, '');
+
+    if (catSlugNormalized === rawSlug || simpleCat.includes(simpleSlug) || simpleSlug.includes(simpleCat)) {
+      return true;
+    }
+
+    return slugWords.some((sw) => {
+      const stem = sw.endsWith('es') ? sw.slice(0, -2) : sw.endsWith('s') ? sw.slice(0, -1) : sw;
+      if (stem.length < 3) return false;
+      return rawCat.includes(stem) || product.slug.toLowerCase().includes(stem);
+    });
+  });
+}
+
 /* ─── getProducts ─── */
 export async function getProducts(
   filters: FilterState,
@@ -51,11 +77,7 @@ export async function getProducts(
       let filtered = [...allProducts];
       if (gender) filtered = filtered.filter((p) => p.gender === gender);
       if (categorySlug) {
-        const slug = categorySlug.toLowerCase();
-        filtered = filtered.filter((p) =>
-          p.categoryPath.some((c) => c.toLowerCase().replace(/\s+/g, '-').replace(/&/g, '') === slug) ||
-          p.slug.includes(slug)
-        );
+        filtered = filtered.filter((p) => matchCategorySlug(p, categorySlug));
       }
       filtered = filterProducts(filtered, filters);
       filtered = sortProducts(filtered, filters.sort);

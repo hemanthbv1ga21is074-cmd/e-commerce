@@ -1,18 +1,33 @@
 import type { Product } from '../types';
 
+const GENERIC_FASHION_TERMS = new Set([
+  'cloth', 'clothes', 'clothing', 'clothings', 'apparel', 'garment', 'garments', 'fashion', 'wear', 'outfit', 'outfits', 'all'
+]);
+
+function stemTerm(t: string): string {
+  if (t.endsWith('es') && t.length > 4) return t.slice(0, -2);
+  if (t.endsWith('s') && t.length > 3) return t.slice(0, -1);
+  return t;
+}
+
 /**
  * Simple fuzzy search scoring — matches on title, brand, category path, tags
  */
 export function searchProducts(products: Product[], query: string): Product[] {
   if (!query.trim()) return [];
 
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const rawTerms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const activeTerms = rawTerms.filter((t) => !GENERIC_FASHION_TERMS.has(t));
+  if (activeTerms.length === 0) {
+    return products;
+  }
 
   const scored = products
     .map((product) => {
       const searchableText = [
         product.title,
         product.brand,
+        product.gender,
         ...product.categoryPath,
         ...product.tags,
         product.fabric,
@@ -23,12 +38,14 @@ export function searchProducts(products: Product[], query: string): Product[] {
         .toLowerCase();
 
       let score = 0;
-      for (const term of terms) {
-        if (searchableText.includes(term)) {
+      for (const term of activeTerms) {
+        const stem = stemTerm(term);
+        if (searchableText.includes(term) || (stem.length >= 3 && searchableText.includes(stem))) {
           score += 1;
-          // Boost for title/brand match
-          if (product.title.toLowerCase().includes(term)) score += 3;
+          // Boost for title/brand/gender match
+          if (product.title.toLowerCase().includes(term) || product.title.toLowerCase().includes(stem)) score += 3;
           if (product.brand.toLowerCase().includes(term)) score += 2;
+          if (product.gender.toLowerCase() === term) score += 2;
         }
       }
 

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { generateGradient, cn } from '../../utils/helpers';
 import { Shirt } from 'lucide-react';
 
@@ -23,6 +23,7 @@ export const ProductImage: React.FC<ProductImageProps> = ({
 }) => {
   const [imageError, setImageError] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const imgRef = useRef<HTMLImageElement | null>(null);
 
   const aspectClass =
     aspectRatio === 'product'
@@ -30,6 +31,13 @@ export const ProductImage: React.FC<ProductImageProps> = ({
       : aspectRatio === 'square'
       ? 'aspect-square'
       : 'aspect-[16/9]';
+
+  // Check if image is already cached or completed on mount or when src changes
+  useEffect(() => {
+    if (imgRef.current?.complete && imgRef.current.naturalWidth > 0) {
+      setLoaded(true);
+    }
+  }, [src]);
 
   const hasRealImage = Boolean(src && !imageError);
 
@@ -44,17 +52,18 @@ export const ProductImage: React.FC<ProductImageProps> = ({
       {hasRealImage ? (
         <>
           {!loaded && (
-            <div className="absolute inset-0 skeleton" />
+            <div className="absolute inset-0 skeleton z-0" />
           )}
           <img
+            ref={imgRef}
             src={src}
             alt={alt}
             loading={lazy ? 'lazy' : 'eager'}
             onLoad={() => setLoaded(true)}
             onError={() => setImageError(true)}
             className={cn(
-              'w-full h-full object-cover transition-opacity duration-300',
-              loaded ? 'opacity-100' : 'opacity-0'
+              'w-full h-full object-cover transition-opacity duration-200 relative z-10',
+              loaded ? 'opacity-100' : 'opacity-85'
             )}
           />
         </>

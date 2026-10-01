@@ -44,7 +44,7 @@ export const Header: React.FC = () => {
     { label: 'MEN', to: '/men' },
     { label: 'WOMEN', to: '/women' },
     { label: 'KIDS', to: '/kids' },
-    { label: 'BRANDS', to: '/search?brands=all' },
+    { label: 'BRANDS', to: '/search' },
     { label: 'SALE', to: '/search?discount=40', isSale: true },
   ];
 

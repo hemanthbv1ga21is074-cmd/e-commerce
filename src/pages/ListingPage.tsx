@@ -9,7 +9,7 @@ import { SortBottomSheet } from '../components/listing/SortBottomSheet';
 import { ProductGrid } from '../components/product/ProductGrid';
 import { Pagination } from '../components/listing/Pagination';
 
-import { getProducts, getAllProducts } from '../services/api/products';
+import { getProducts, getAllProducts, matchCategorySlug } from '../services/api/products';
 import { getBreadcrumbs } from '../services/api/categories';
 import {
   parseQueryString,
@@ -78,10 +78,7 @@ export const ListingPage: React.FC = () => {
       let base = all;
       if (currentGender) base = base.filter((p) => p.gender === currentGender);
       if (currentCategory) {
-        base = base.filter((p) =>
-          p.categoryPath.some((c) => c.toLowerCase().replace(/\s+/g, '-').replace(/&/g, '') === currentCategory.toLowerCase()) ||
-          p.slug.includes(currentCategory.toLowerCase())
-        );
+        base = base.filter((p) => matchCategorySlug(p, currentCategory));
       }
       setAllCategoryProducts(base);
     }

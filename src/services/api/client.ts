@@ -1,7 +1,7 @@
 import { simulateDelay } from '../../utils/helpers';
 
-const USE_MOCK = import.meta.env.VITE_USE_MOCK !== 'false';
-export const API_BASE = (import.meta.env.VITE_API_BASE_URL as string) || 'http://localhost:4000/api';
+const USE_MOCK = import.meta.env?.VITE_USE_MOCK !== 'false';
+export const API_BASE = (import.meta.env?.VITE_API_BASE_URL as string) || 'http://localhost:4000/api';
 
 /** Key used by the auth store to persist the access token. */
 const ACCESS_TOKEN_KEY = 'sb_access_token';

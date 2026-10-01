@@ -21,6 +21,31 @@ export interface CatalogFilterParams {
   limit?: number;
 }
 
+export function matchCategorySlug(product: { slug: string; categoryPath: string[] }, categorySlug: string): boolean {
+  if (!categorySlug) return true;
+  const rawSlug = categorySlug.toLowerCase().trim();
+  const slugWords = rawSlug.replace(/[^a-z0-9]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+
+  if (product.slug.toLowerCase().includes(rawSlug)) return true;
+
+  return product.categoryPath.some((cat) => {
+    const rawCat = cat.toLowerCase();
+    const catSlugNormalized = rawCat.replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    const simpleCat = rawCat.replace(/[^a-z0-9]+/g, '');
+    const simpleSlug = rawSlug.replace(/[^a-z0-9]+/g, '');
+
+    if (catSlugNormalized === rawSlug || simpleCat.includes(simpleSlug) || simpleSlug.includes(simpleCat)) {
+      return true;
+    }
+
+    return slugWords.some((sw) => {
+      const stem = sw.endsWith('es') ? sw.slice(0, -2) : sw.endsWith('s') ? sw.slice(0, -1) : sw;
+      if (stem.length < 3) return false;
+      return rawCat.includes(stem) || product.slug.toLowerCase().includes(stem);
+    });
+  });
+}
+
 export class CatalogService {
   async getProducts(params: CatalogFilterParams) {
     let result = [...products];
@@ -33,12 +58,7 @@ export class CatalogService {
 
     // Category filter
     if (params.category) {
-      const catSlug = params.category.toLowerCase();
-      result = result.filter(
-        (p) =>
-          p.categoryPath.some((c) => c.toLowerCase().replace(/\s+/g, '-').replace(/&/g, '') === catSlug) ||
-          p.slug.includes(catSlug)
-      );
+      result = result.filter((p) => matchCategorySlug(p, params.category!));
     }
 
     // Brand filter
@@ -139,13 +159,29 @@ export class CatalogService {
     const q = query.toLowerCase().trim();
     if (!q) return [];
 
+    const GENERIC = new Set(['cloth', 'clothes', 'clothing', 'clothings', 'apparel', 'garment', 'garments', 'fashion', 'wear', 'outfit', 'outfits', 'all']);
+    const terms = q.split(/\s+/).filter(Boolean);
+    const nonGeneric = terms.filter((t) => !GENERIC.has(t));
+
+    if (nonGeneric.length === 0) {
+      return products.slice(0, limit);
+    }
+
     return products
-      .filter(
-        (p) =>
-          p.title.toLowerCase().includes(q) ||
-          p.brand.toLowerCase().includes(q) ||
-          p.categoryPath.some((c) => c.toLowerCase().includes(q))
-      )
+      .filter((p) => {
+        const searchable = [
+          p.title,
+          p.brand,
+          p.gender,
+          ...p.categoryPath,
+          ...p.tags,
+        ].join(' ').toLowerCase();
+
+        return nonGeneric.some((term) => {
+          const stem = term.endsWith('es') ? term.slice(0, -2) : term.endsWith('s') ? term.slice(0, -1) : term;
+          return searchable.includes(term) || (stem.length >= 3 && searchable.includes(stem));
+        });
+      })
       .slice(0, limit);
   }
 
