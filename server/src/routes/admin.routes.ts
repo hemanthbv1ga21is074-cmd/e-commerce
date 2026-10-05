@@ -167,3 +167,101 @@ adminRouter.post('/upload', async (req: AuthenticatedRequest, res: Response, nex
   }
 });
 
+// GET /api/admin/team - Get all admin and support members
+adminRouter.get('/team', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const { isDbAvailable, prisma } = await import('../db/client.js');
+    const dbActive = await isDbAvailable();
+    if (dbActive) {
+      const users = await prisma.user.findMany({
+        where: { role: { in: ['ADMIN', 'SUPPORT'] } },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          role: true,
+          isEmailVerified: true,
+          createdAt: true,
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+      return res.json({ success: true, data: users });
+    }
+    res.json({
+      success: true,
+      data: [
+        { id: 'usr-admin-1', email: 'admin@stylebazaar.com', name: 'Store Administrator', role: 'ADMIN', createdAt: new Date() }
+      ],
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/admin/team/grant - Grant admin or support role to an email
+adminRouter.post('/team/grant', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const { email, role = 'ADMIN' } = req.body;
+    if (!email) throw new BadRequestError('Email address is required');
+    const normalizedEmail = email.toLowerCase().trim();
+
+    const { isDbAvailable, prisma } = await import('../db/client.js');
+    const dbActive = await isDbAvailable();
+
+    if (dbActive) {
+      let user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+      if (!user) {
+        const argon2 = (await import('argon2')).default;
+        const passwordHash = await argon2.hash('Admin123!');
+        user = await prisma.user.create({
+          data: {
+            email: normalizedEmail,
+            name: normalizedEmail.split('@')[0],
+            passwordHash,
+            role: role === 'SUPPORT' ? 'SUPPORT' : 'ADMIN',
+            isEmailVerified: true,
+          },
+        });
+      } else {
+        user = await prisma.user.update({
+          where: { email: normalizedEmail },
+          data: { role: role === 'SUPPORT' ? 'SUPPORT' : 'ADMIN' },
+        });
+      }
+      return res.json({ success: true, data: user, message: `Granted ${role} role to ${normalizedEmail}` });
+    }
+
+    res.json({ success: true, message: `Granted ${role} access to ${normalizedEmail}` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/admin/team/revoke - Revoke admin access back to CUSTOMER
+adminRouter.post('/team/revoke', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const { email } = req.body;
+    if (!email) throw new BadRequestError('Email address is required');
+    const normalizedEmail = email.toLowerCase().trim();
+
+    if (normalizedEmail === 'admin@stylebazaar.com') {
+      throw new BadRequestError('Cannot revoke access for primary super-administrator');
+    }
+
+    const { isDbAvailable, prisma } = await import('../db/client.js');
+    const dbActive = await isDbAvailable();
+
+    if (dbActive) {
+      await prisma.user.update({
+        where: { email: normalizedEmail },
+        data: { role: 'CUSTOMER' },
+      });
+    }
+
+    res.json({ success: true, message: `Revoked admin privileges for ${normalizedEmail}` });
+  } catch (err) {
+    next(err);
+  }
+});
+
+

@@ -796,3 +796,92 @@ export async function getAdminAnalytics(): Promise<AdminAnalyticsData> {
     };
   });
 }
+
+/* ─── API: Admin Team & Email Access Management ─── */
+export interface AdminTeamMember {
+  id: string;
+  email: string;
+  name?: string;
+  role: 'ADMIN' | 'SUPPORT';
+  isEmailVerified?: boolean;
+  createdAt: string;
+}
+
+const STORAGE_ADMIN_TEAM = 'sb_admin_authorized_emails';
+
+export function getStoredAdminTeam(): AdminTeamMember[] {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem(STORAGE_ADMIN_TEAM) : null;
+    if (raw) return JSON.parse(raw);
+  } catch {}
+  return [
+    { id: 'usr-admin-1', email: 'admin@stylebazaar.com', name: 'Store Administrator', role: 'ADMIN', createdAt: '2026-01-01T00:00:00Z' },
+  ];
+}
+
+export function saveStoredAdminTeam(team: AdminTeamMember[]): void {
+  try {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(STORAGE_ADMIN_TEAM, JSON.stringify(team));
+    }
+  } catch {}
+}
+
+export async function getAdminTeam(): Promise<AdminTeamMember[]> {
+  return apiCall(
+    () => getStoredAdminTeam(),
+    async () => {
+      const res = await api<{ success: boolean; data: AdminTeamMember[] }>('/admin/team');
+      return res.data;
+    }
+  );
+}
+
+export async function grantAdminRole(email: string, role: 'ADMIN' | 'SUPPORT' = 'ADMIN'): Promise<boolean> {
+  return apiCall(
+    () => {
+      const team = getStoredAdminTeam();
+      const norm = email.toLowerCase().trim();
+      const exists = team.find((m) => m.email.toLowerCase() === norm);
+      if (exists) {
+        exists.role = role;
+      } else {
+        team.push({
+          id: `usr-${Date.now()}`,
+          email: norm,
+          name: norm.split('@')[0],
+          role,
+          createdAt: new Date().toISOString(),
+        });
+      }
+      saveStoredAdminTeam(team);
+      return true;
+    },
+    async () => {
+      await api('/admin/team/grant', {
+        method: 'POST',
+        body: JSON.stringify({ email, role }),
+      });
+      return true;
+    }
+  );
+}
+
+export async function revokeAdminRole(email: string): Promise<boolean> {
+  return apiCall(
+    () => {
+      const team = getStoredAdminTeam();
+      const filtered = team.filter((m) => m.email.toLowerCase() !== email.toLowerCase().trim());
+      saveStoredAdminTeam(filtered);
+      return true;
+    },
+    async () => {
+      await api('/admin/team/revoke', {
+        method: 'POST',
+        body: JSON.stringify({ email }),
+      });
+      return true;
+    }
+  );
+}
+

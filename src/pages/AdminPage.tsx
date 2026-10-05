@@ -27,6 +27,9 @@ import {
   Star,
   Edit2,
   Link as LinkIcon,
+  ShieldAlert,
+  KeyRound,
+  Mail,
 } from 'lucide-react';
 import {
   getAdminOrders,
@@ -40,6 +43,10 @@ import {
   getAdminAnalytics,
   getStoredCoupons,
   saveStoredCoupons,
+  getAdminTeam,
+  grantAdminRole,
+  revokeAdminRole,
+  type AdminTeamMember,
   type AdminAnalyticsData,
   type InventoryVariant,
   type AdminCoupon,
@@ -49,7 +56,7 @@ import { useToastStore } from '../store/useToastStore';
 import { formatCurrency, formatDate, cn } from '../utils/helpers';
 import type { Order, OrderStatus, Product, OrderItem, OrderTimeline } from '../types';
 
-type AdminTab = 'overview' | 'orders' | 'products' | 'inventory' | 'coupons' | 'analytics';
+type AdminTab = 'overview' | 'orders' | 'products' | 'inventory' | 'coupons' | 'analytics' | 'team';
 
 export const AdminPage: React.FC = () => {
   const { user, isAuthenticated, loginAsAdmin, logout } = useAuthStore();
@@ -64,6 +71,12 @@ export const AdminPage: React.FC = () => {
   const [inventory, setInventory] = useState<InventoryVariant[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
+  const [teamMembers, setTeamMembers] = useState<AdminTeamMember[]>([]);
+
+  // Team & Email Access Management states
+  const [newAdminEmail, setNewAdminEmail] = useState('');
+  const [newAdminRole, setNewAdminRole] = useState<'ADMIN' | 'SUPPORT'>('ADMIN');
+  const [isAddingMember, setIsAddingMember] = useState(false);
 
   // Filter/Search states
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
@@ -119,11 +132,12 @@ export const AdminPage: React.FC = () => {
   const refreshData = async () => {
     setLoading(true);
     try {
-      const [analyticsData, ordersRes, inventoryRes, productsList] = await Promise.all([
+      const [analyticsData, ordersRes, inventoryRes, productsList, teamList] = await Promise.all([
         getAdminAnalytics(),
         getAdminOrders({ status: orderStatusFilter !== 'all' ? orderStatusFilter : undefined }),
         getAdminInventory(),
         getAdminProductsList(),
+        getAdminTeam(),
       ]);
 
       setAnalytics(analyticsData);
@@ -131,6 +145,7 @@ export const AdminPage: React.FC = () => {
       setInventory(inventoryRes.variants);
       setProducts(productsList);
       setCoupons(getStoredCoupons());
+      setTeamMembers(teamList);
     } catch (err) {
       console.error('Failed to load admin data', err);
       showToast('Error refreshing admin data', 'error');
@@ -232,6 +247,46 @@ export const AdminPage: React.FC = () => {
     setLinkInput('');
     showToast('Image link added', 'success');
   };
+
+  // Authorize Email for Admin Console Access
+  const handleAuthorizeEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanEmail = newAdminEmail.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      showToast('Please enter a valid email address', 'error');
+      return;
+    }
+    setIsAddingMember(true);
+    try {
+      await grantAdminRole(cleanEmail, newAdminRole);
+      showToast(`Authorized ${cleanEmail} for ${newAdminRole} console access!`, 'success');
+      setNewAdminEmail('');
+      const updated = await getAdminTeam();
+      setTeamMembers(updated);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to authorize email', 'error');
+    } finally {
+      setIsAddingMember(false);
+    }
+  };
+
+  // Revoke Admin Access for an Email
+  const handleRevokeEmail = async (email: string) => {
+    if (email.toLowerCase() === 'admin@stylebazaar.com') {
+      showToast('Cannot revoke primary store administrator', 'error');
+      return;
+    }
+    if (!confirm(`Are you sure you want to revoke admin console access for ${email}?`)) return;
+    try {
+      await revokeAdminRole(email);
+      showToast(`Revoked admin access for ${email}`, 'info');
+      const updated = await getAdminTeam();
+      setTeamMembers(updated);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to revoke access', 'error');
+    }
+  };
+
 
   // Handle Order Status Update
   const handleOrderStatusChange = async (orderId: string, newStatus: OrderStatus) => {
@@ -582,6 +637,13 @@ export const AdminPage: React.FC = () => {
             },
             { id: 'coupons', label: 'Coupons & Promos', icon: Tag },
             { id: 'analytics', label: 'Sales & Analytics', icon: TrendingUp },
+            {
+              id: 'team',
+              label: 'Admin Access',
+              icon: KeyRound,
+              badge: teamMembers.length,
+              badgeColor: 'bg-indigo-600',
+            },
           ].map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
@@ -1417,6 +1479,198 @@ export const AdminPage: React.FC = () => {
                       <span className="font-mono font-bold text-white">{st.count} orders</span>
                     </div>
                   ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* TAB 7: ADMIN ACCESS & EMAIL AUTHENTICATION */}
+        {/* ======================================================== */}
+        {activeTab === 'team' && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Header / Intro Strip */}
+            <div className="bg-slate-800/60 p-5 rounded-2xl border border-slate-700/60 flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-400">
+                    <KeyRound size={20} />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-extrabold text-white">Admin Email Authentication & Access Control</h3>
+                    <p className="text-xs text-slate-400">
+                      Manage which email accounts are authorized with Administrator and Support privileges in Supabase.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2 text-xs">
+                <span className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 font-bold border border-emerald-500/30 flex items-center gap-1.5">
+                  <ShieldCheck size={14} />
+                  <span>Supabase RLS Guard: Active</span>
+                </span>
+              </div>
+            </div>
+
+            {/* Quick Metrics */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-xl">
+                <span className="text-xs text-slate-400 uppercase font-semibold">Authorized Admin Accounts</span>
+                <div className="text-2xl font-black text-white mt-1">{teamMembers.length}</div>
+                <span className="text-[11px] text-emerald-400 mt-1 block">Full Console Privileges</span>
+              </div>
+              <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-xl">
+                <span className="text-xs text-slate-400 uppercase font-semibold">Primary Super-Admin</span>
+                <div className="text-sm font-bold text-rose-400 mt-2 truncate font-mono">admin@stylebazaar.com</div>
+                <span className="text-[11px] text-slate-400 block mt-0.5">Permanent Root Access</span>
+              </div>
+              <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-xl">
+                <span className="text-xs text-slate-400 uppercase font-semibold">Access Policy</span>
+                <div className="text-sm font-bold text-white mt-2">Role-Based Access Control (RBAC)</div>
+                <span className="text-[11px] text-slate-400 block mt-0.5">Synced with Supabase User Table</span>
+              </div>
+            </div>
+
+            {/* Authorize New Admin Email Form */}
+            <div className="bg-slate-800/70 border border-slate-700/60 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center gap-2">
+                <Mail size={16} className="text-rose-400" />
+                <h4 className="text-sm font-extrabold text-white uppercase tracking-wider">
+                  Authorize New Admin or Staff Email
+                </h4>
+              </div>
+
+              <form onSubmit={handleAuthorizeEmail} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                <div className="flex-1 relative">
+                  <input
+                    type="email"
+                    required
+                    placeholder="Enter email address (e.g. yourname@domain.com)"
+                    value={newAdminEmail}
+                    onChange={(e) => setNewAdminEmail(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
+                  />
+                </div>
+
+                <div className="w-full sm:w-48">
+                  <select
+                    value={newAdminRole}
+                    onChange={(e) => setNewAdminRole(e.target.value as 'ADMIN' | 'SUPPORT')}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
+                  >
+                    <option value="ADMIN">ADMIN (Full Control)</option>
+                    <option value="SUPPORT">SUPPORT (Orders Only)</option>
+                  </select>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isAddingMember}
+                  className="flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-colors shadow-sm whitespace-nowrap"
+                >
+                  <ShieldCheck size={15} />
+                  <span>{isAddingMember ? 'Authorizing...' : 'Authorize Email'}</span>
+                </button>
+              </form>
+              <p className="text-[11px] text-slate-400">
+                Granting access enables this email to sign in and manage products, catalog pricing, orders, and customer refunds.
+              </p>
+            </div>
+
+            {/* List of Authorized Admins */}
+            <div className="bg-slate-800/70 border border-slate-700/60 rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-700/80 flex items-center justify-between">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Currently Authorized Emails ({teamMembers.length})
+                </h4>
+                <span className="text-[11px] text-slate-400">Synchronized with database User table</span>
+              </div>
+
+              <div className="divide-y divide-slate-700/60">
+                {teamMembers.map((member) => (
+                  <div
+                    key={member.id}
+                    className="px-5 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-700/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-rose-600 to-indigo-600 text-white font-black text-sm flex items-center justify-center uppercase shadow">
+                        {member.email[0]}
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white text-xs font-mono">{member.email}</span>
+                          {member.email.toLowerCase() === 'admin@stylebazaar.com' && (
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                              Root Admin
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {member.name || member.email.split('@')[0]} • Added {formatDate(member.createdAt)}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
+                      <span
+                        className={cn(
+                          'text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full',
+                          member.role === 'ADMIN'
+                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                        )}
+                      >
+                        {member.role}
+                      </span>
+
+                      {member.email.toLowerCase() !== 'admin@stylebazaar.com' ? (
+                        <button
+                          type="button"
+                          onClick={() => handleRevokeEmail(member.email)}
+                          className="text-xs font-semibold text-rose-400 hover:text-rose-300 hover:underline px-2 py-1 rounded"
+                        >
+                          Revoke Access
+                        </button>
+                      ) : (
+                        <span className="text-[10px] text-slate-500 italic px-2">Protected</span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Guide Card: How to Manage Admin Emails Directly in Supabase */}
+            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
+                <ShieldAlert size={16} />
+                <span>How to Authorize Admin Emails Directly in Supabase</span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-300">
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="font-bold text-white text-xs">Method 1: Visual Table Editor (Easiest)</div>
+                  <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[11px]">
+                    <li>Open your Supabase project in your browser.</li>
+                    <li>Click the <strong>Table Editor</strong> icon on the left sidebar.</li>
+                    <li>Select the <code className="text-rose-400">User</code> table.</li>
+                    <li>Locate the user by their email address.</li>
+                    <li>Double-click the <code className="text-emerald-400">role</code> column cell and change it to <code className="text-emerald-400">ADMIN</code>.</li>
+                  </ol>
+                </div>
+
+                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                  <div className="font-bold text-white text-xs">Method 2: SQL Editor (1-Click Query)</div>
+                  <p className="text-[11px] text-slate-400">
+                    Go to the <strong>SQL Editor</strong> in Supabase and run:
+                  </p>
+                  <pre className="p-2.5 rounded bg-slate-900 text-rose-300 font-mono text-[10px] overflow-x-auto border border-slate-800">
+{`UPDATE "User"
+SET "role" = 'ADMIN'
+WHERE "email" = 'your-email@example.com';`}
+                  </pre>
                 </div>
               </div>
             </div>
