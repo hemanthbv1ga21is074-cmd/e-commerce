@@ -20,6 +20,7 @@ export interface User {
   walletTransactions?: WalletTransaction[];
   loyaltyPoints: number;
   loyaltyTier: 'Silver' | 'Gold' | 'Platinum';
+  role?: 'admin' | 'customer';
   createdAt: string;
 }
 

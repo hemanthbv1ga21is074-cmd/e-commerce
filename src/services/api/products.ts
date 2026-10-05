@@ -40,6 +40,22 @@ interface ApiProductsResponse {
 
 
 
+/* ─── Effective Products Resolver (Base + Admin Custom Products) ─── */
+export function getEffectiveProducts(): Product[] {
+  try {
+    const raw = typeof window !== 'undefined' ? localStorage.getItem('sb_admin_products') : null;
+    if (raw) {
+      const custom: Product[] = JSON.parse(raw);
+      if (Array.isArray(custom) && custom.length > 0) {
+        return [...custom, ...allProducts];
+      }
+    }
+  } catch {
+    /* fallback to static base */
+  }
+  return allProducts;
+}
+
 /* ─── Category Slug Matcher ─── */
 export function matchCategorySlug(product: Product, categorySlug: string): boolean {
   if (!categorySlug) return true;
@@ -74,7 +90,8 @@ export async function getProducts(
 ): Promise<PaginatedResponse<Product>> {
   return apiCall(
     () => {
-      let filtered = [...allProducts];
+      const catalog = getEffectiveProducts();
+      let filtered = [...catalog];
       if (gender) filtered = filtered.filter((p) => p.gender === gender);
       if (categorySlug) {
         filtered = filtered.filter((p) => matchCategorySlug(p, categorySlug));
@@ -112,7 +129,7 @@ export async function getProducts(
 /* ─── getProductBySlug ─── */
 export async function getProductBySlug(slug: string): Promise<Product | null> {
   return apiCall(
-    () => allProducts.find((p) => p.slug === slug) || null,
+    () => getEffectiveProducts().find((p) => p.slug === slug) || null,
     async () => {
       try {
         const res = await api<ApiProductResponse>(`/products/${slug}`);
@@ -129,9 +146,10 @@ export async function getProductBySlug(slug: string): Promise<Product | null> {
 export async function getRelatedProducts(productId: string, limit = 8): Promise<Product[]> {
   return apiCall(
     () => {
-      const product = allProducts.find((p) => p.id === productId);
+      const catalog = getEffectiveProducts();
+      const product = catalog.find((p) => p.id === productId);
       if (!product) return [];
-      return allProducts
+      return catalog
         .filter((p) => p.id !== productId && p.gender === product.gender)
         .sort((a, b) => {
           const aScore = a.categoryPath.filter((c) => product.categoryPath.includes(c)).length;
@@ -150,7 +168,7 @@ export async function getRelatedProducts(productId: string, limit = 8): Promise<
 /* ─── searchProductsApi ─── */
 export async function searchProductsApi(query: string): Promise<Product[]> {
   return apiCall(
-    () => searchProducts(allProducts, query),
+    () => searchProducts(getEffectiveProducts(), query),
     async () => {
       const res = await api<ApiProductsResponse>(`/products/search?q=${encodeURIComponent(query)}`);
       return res.data;
@@ -161,7 +179,7 @@ export async function searchProductsApi(query: string): Promise<Product[]> {
 /* ─── getTrendingProducts ─── */
 export async function getTrendingProducts(limit = 8): Promise<Product[]> {
   return apiCall(
-    () => [...allProducts].sort((a, b) => b.ratingCount - a.ratingCount).slice(0, limit),
+    () => [...getEffectiveProducts()].sort((a, b) => b.ratingCount - a.ratingCount).slice(0, limit),
     async () => {
       const res = await api<ApiProductsResponse>(`/products/trending?limit=${limit}`);
       return res.data;
@@ -172,7 +190,7 @@ export async function getTrendingProducts(limit = 8): Promise<Product[]> {
 /* ─── getProductsByIds (mock-only helper — no backend endpoint needed) ─── */
 export async function getProductsByIds(ids: string[]): Promise<Product[]> {
   return apiCall(
-    () => allProducts.filter((p) => ids.includes(p.id)),
+    () => getEffectiveProducts().filter((p) => ids.includes(p.id)),
     async () => {
       // Batch fetch via individual calls if backend doesn't have a batch endpoint
       const results = await Promise.allSettled(
@@ -188,7 +206,7 @@ export async function getProductsByIds(ids: string[]): Promise<Product[]> {
 /* ─── getAllProducts (mock-only helper) ─── */
 export async function getAllProducts(): Promise<Product[]> {
   return apiCall(
-    () => allProducts,
+    () => getEffectiveProducts(),
     async () => {
       const res = await api<ApiProductListResponse>('/products?limit=200');
       return res.data.items;

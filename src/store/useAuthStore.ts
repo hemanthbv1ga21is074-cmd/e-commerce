@@ -7,6 +7,7 @@ interface AuthStore {
   isAuthenticated: boolean;
   login: (user: User) => void;
   loginAsDemoUser: () => void;
+  loginAsAdmin: () => void;
   logout: () => void;
   updateUser: (updates: Partial<User>) => void;
   addWalletBalance: (amount: number, description?: string) => void;
@@ -14,11 +15,27 @@ interface AuthStore {
   deductLoyaltyPoints: (points: number) => void;
 }
 
+export const ADMIN_USER: User = {
+  id: 'usr-admin-1',
+  name: 'Admin Manager',
+  email: 'admin@stylebazaar.com',
+  phone: '9999900000',
+  role: 'admin',
+  gender: 'Other',
+  addresses: [],
+  walletBalance: 25000,
+  loyaltyPoints: 100000,
+  loyaltyTier: 'Platinum',
+  createdAt: '2024-01-01T00:00:00Z',
+  walletTransactions: [],
+};
+
 export const DEMO_USER: User = {
   id: 'usr-demo-1',
   name: 'Rahul Sharma',
   email: 'rahul.sharma@example.com',
   phone: '9876543210',
+  role: 'customer',
   gender: 'Male',
   birthday: '1996-08-15',
   alternatePhone: '9876500000',
@@ -55,6 +72,8 @@ export const useAuthStore = create<AuthStore>()(
       login: (user) => set({ user, isAuthenticated: true }),
 
       loginAsDemoUser: () => set({ user: DEMO_USER, isAuthenticated: true }),
+
+      loginAsAdmin: () => set({ user: ADMIN_USER, isAuthenticated: true }),
 
       logout: () => set({ user: null, isAuthenticated: false }),
 

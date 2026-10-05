@@ -152,6 +152,22 @@ export const Header: React.FC = () => {
             )}
           </Link>
 
+          {/* Admin Console Link */}
+          <Link
+            to="/admin"
+            className="relative p-2 text-rose-600 hover:text-rose-700 transition-colors flex flex-col items-center group"
+            title="Admin Console"
+            aria-label="Admin Console"
+          >
+            <div className="relative">
+              <Package size={20} className="text-rose-600 group-hover:scale-110 transition-transform" />
+              <span className="absolute -top-1 -right-1.5 text-[8px] bg-rose-600 text-white font-extrabold px-1 rounded-full uppercase">
+                Pro
+              </span>
+            </div>
+            <span className="text-[10px] font-black hidden sm:inline text-rose-600">Admin</span>
+          </Link>
+
           {/* User Profile Hover Menu */}
           <div
             className="relative"
@@ -230,6 +246,15 @@ export const Header: React.FC = () => {
                         <Award size={15} />
                         <span>Insider Rewards</span>
                       </Link>
+
+                      <Link
+                        to="/admin"
+                        onClick={() => setProfileDropdownOpen(false)}
+                        className="flex items-center gap-2.5 px-4 py-2 hover:bg-rose-50 text-rose-600 transition-colors font-bold"
+                      >
+                        <Package size={15} />
+                        <span>Admin Console</span>
+                      </Link>
                     </div>
 
                     <div className="pt-2 border-t border-gray-100 px-4">
@@ -266,6 +291,13 @@ export const Header: React.FC = () => {
                         className="block py-1 hover:text-accent font-medium"
                       >
                         Wishlist
+                      </Link>
+                      <Link
+                        to="/admin"
+                        onClick={() => setProfileDropdownOpen(false)}
+                        className="block py-1 font-bold text-rose-600 hover:text-rose-700"
+                      >
+                        Admin Management Console ↗
                       </Link>
                       <Link
                         to="/search?brands=all"

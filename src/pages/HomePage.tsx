@@ -31,7 +31,7 @@ export const HomePage: React.FC = () => {
 
     async function loadData() {
       try {
-        const [bannersData, dealData, offersData, trendingData, allProds] = await Promise.all([
+        const [bannersRes, dealRes, offersRes, trendingRes, allProdsRes] = await Promise.allSettled([
           getHeroBanners(),
           getDealOfTheDay(),
           getBankOffers(),
@@ -41,20 +41,32 @@ export const HomePage: React.FC = () => {
 
         if (!isMounted) return;
 
+        const bannersData = bannersRes.status === 'fulfilled' ? bannersRes.value : [];
+        const dealData = dealRes.status === 'fulfilled' ? dealRes.value : null;
+        const offersData = offersRes.status === 'fulfilled' ? offersRes.value : [];
+        const trendingData = trendingRes.status === 'fulfilled' ? trendingRes.value : [];
+        const allProds = allProdsRes.status === 'fulfilled' ? allProdsRes.value : [];
+
         setBanners(bannersData);
         setDeal(dealData);
         setBankOffers(offersData);
-        setTrending(trendingData);
+        setTrending(trendingData.length > 0 ? trendingData : allProds.slice(0, 10));
 
         // Fetch products for deal of the day
         if (dealData?.productIds?.length) {
-          const dealProds = await getProductsByIds(dealData.productIds);
-          if (isMounted) setDealProducts(dealProds);
+          try {
+            const dealProds = await getProductsByIds(dealData.productIds);
+            if (isMounted) setDealProducts(dealProds.length > 0 ? dealProds : allProds.slice(0, 6));
+          } catch {
+            if (isMounted) setDealProducts(allProds.slice(0, 6));
+          }
+        } else if (allProds.length > 0) {
+          setDealProducts(allProds.slice(0, 6));
         }
 
         // Recommended items (random subset or high rated)
         const recs = allProds.filter((p) => p.rating >= 4.3).slice(0, 8);
-        setRecommended(recs);
+        setRecommended(recs.length > 0 ? recs : allProds.slice(0, 8));
       } catch (err) {
         console.error('Failed to load homepage data', err);
       } finally {

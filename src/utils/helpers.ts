@@ -99,3 +99,29 @@ export function generateId(): string {
 export function isMobile(): boolean {
   return typeof window !== 'undefined' && window.innerWidth < 768;
 }
+
+/**
+ * Format number as Indian Rupee (INR)
+ */
+export function formatCurrency(amount: number): string {
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(amount);
+}
+
+/**
+ * Format ISO date string into readable Indian format
+ */
+export function formatDate(dateString: string): string {
+  try {
+    return new Date(dateString).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return dateString;
+  }
+}

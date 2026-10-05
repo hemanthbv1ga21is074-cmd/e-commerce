@@ -29,6 +29,7 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { TermsPage } from './pages/TermsPage';
 import { PrivacyPolicyPage } from './pages/PrivacyPolicyPage';
 import { ShippingPolicyPage } from './pages/ShippingPolicyPage';
+import { AdminPage } from './pages/AdminPage';
 
 export function App() {
   return (
@@ -37,12 +38,22 @@ export function App() {
         <ConfigProvider>
           <BrowserRouter>
           <Routes>
+            {/* Dedicated Admin Management Console */}
+            <Route path="admin" element={<AdminPage />} />
+            <Route path="admin/*" element={<AdminPage />} />
+
             {/* Standard storefront shell routes */}
             <Route path="/" element={<Layout />}>
               <Route index element={<HomePage />} />
               <Route path="men" element={<ListingPage />} />
               <Route path="women" element={<ListingPage />} />
               <Route path="kids" element={<ListingPage />} />
+              <Route path="clothing" element={<ListingPage />} />
+              <Route path="clothes" element={<ListingPage />} />
+              <Route path="shop" element={<ListingPage />} />
+              <Route path="collection" element={<ListingPage />} />
+              <Route path="all" element={<ListingPage />} />
+              <Route path="category/:category" element={<ListingPage />} />
               <Route path=":gender/:category" element={<ListingPage />} />
               <Route path="product/:slug" element={<ProductDetailPage />} />
               <Route path="search" element={<SearchResultsPage />} />
