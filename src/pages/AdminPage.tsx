@@ -38,6 +38,7 @@ import {
   Download,
   UserX,
   RotateCcw,
+  Menu,
 } from 'lucide-react';
 import {
   getAdminOrders,
@@ -82,6 +83,7 @@ export const AdminPage: React.FC = () => {
 
   const [activeTab, setActiveTab] = useState<AdminTab>('overview');
   const [loading, setLoading] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   // Data states
   const [analytics, setAnalytics] = useState<AdminAnalyticsData | null>(null);
@@ -689,45 +691,206 @@ export const AdminPage: React.FC = () => {
     }
   };
 
+  const navSections = [
+    {
+      title: 'Store Operations',
+      items: [
+        { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+        {
+          id: 'orders',
+          label: 'Orders',
+          icon: ShoppingBag,
+          badge: orders.filter((o) => o.status === 'placed' || o.status === 'confirmed').length,
+          badgeColor: 'bg-emerald-600',
+        },
+        { id: 'products', label: 'Products', icon: Package, badge: products.length },
+        {
+          id: 'inventory',
+          label: 'Inventory',
+          icon: Boxes,
+          badge: analytics?.lowStockCount,
+          badgeColor: 'bg-rose-500',
+        },
+        { id: 'coupons', label: 'Coupons & Promos', icon: Tag },
+        { id: 'analytics', label: 'Sales & Analytics', icon: TrendingUp },
+      ],
+    },
+    {
+      title: 'Security & Access',
+      items: [
+        {
+          id: 'team',
+          label: 'Admin Access',
+          icon: KeyRound,
+          badge: teamMembers.length,
+          badgeColor: 'bg-indigo-600',
+        },
+        {
+          id: 'sessions',
+          label: 'My Sessions',
+          icon: ShieldAlert,
+          badge: sessions.length,
+          badgeColor: 'bg-emerald-600',
+        },
+      ],
+    },
+  ];
+
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans">
+    <div className="min-h-screen bg-slate-900 text-slate-100 font-sans flex flex-col lg:flex-row">
       <Helmet>
         <title>StyleBazaar — Admin Management Console</title>
       </Helmet>
 
-      {/* Top Executive Header */}
-      <header className="sticky top-0 z-50 bg-slate-950/90 backdrop-blur-md border-b border-slate-800 px-4 sm:px-8 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-4">
+      {/* Mobile Top Navbar with Hamburger */}
+      <div className="lg:hidden sticky top-0 z-50 bg-slate-950/95 backdrop-blur-md border-b border-slate-800 px-4 py-3 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <button
+            type="button"
+            onClick={() => setSidebarOpen((prev) => !prev)}
+            className="p-2 rounded-lg bg-slate-800 text-slate-300 hover:text-white"
+            title="Toggle Menu"
+          >
+            {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          <Link to="/" className="flex items-center gap-1.5">
+            <span className="font-display text-lg font-black tracking-tight text-white">
+              Style<span className="text-rose-500">Bazaar</span>
+            </span>
+            <span className="bg-rose-500/20 text-rose-400 text-[9px] font-black uppercase px-1.5 py-0.5 rounded border border-rose-500/30">
+              Admin
+            </span>
+          </Link>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={refreshData}
+            disabled={loading}
+            className="p-1.5 rounded-lg bg-slate-800 text-slate-300"
+          >
+            <RefreshCw size={14} className={cn(loading && 'animate-spin')} />
+          </button>
+          <Link to="/" className="text-xs text-slate-400 hover:text-white p-1.5">
+            <ExternalLink size={15} />
+          </Link>
+        </div>
+      </div>
+
+      {/* Left Sidebar Menu */}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-50 w-64 bg-slate-950 border-r border-slate-800/80 flex flex-col transition-transform duration-200 ease-in-out lg:translate-x-0 lg:static lg:z-auto',
+          sidebarOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+      >
+        {/* Brand & Portal Badge */}
+        <div className="p-5 border-b border-slate-800/80 flex items-center justify-between">
           <Link to="/" className="flex items-center gap-2 group">
             <span className="font-display text-xl font-black tracking-tight text-white group-hover:text-rose-400 transition-colors">
               Style<span className="text-rose-500">Bazaar</span>
             </span>
             <span className="bg-rose-500/20 text-rose-400 text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded border border-rose-500/30">
-              Admin Portal
+              Admin
             </span>
           </Link>
+          <button
+            type="button"
+            onClick={() => setSidebarOpen(false)}
+            className="lg:hidden p-1 rounded-md text-slate-400 hover:text-white"
+          >
+            <X size={18} />
+          </button>
+        </div>
 
-          <div className="hidden md:flex items-center gap-2 text-xs text-slate-400 pl-4 border-l border-slate-800">
+        {/* Engine Status pill */}
+        <div className="px-5 py-3 border-b border-slate-900 bg-slate-950/40">
+          <div className="flex items-center gap-2 text-[11px] text-slate-400">
             <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-            <span>Store Engine: Online</span>
-            <span className="text-slate-600">|</span>
-            <span>{analytics?.totalProductsCount || 104} Catalog Garments</span>
+            <span className="font-medium">Store Engine: Online</span>
+          </div>
+          <div className="text-[10px] text-slate-500 mt-0.5">
+            {analytics?.totalProductsCount || 104} Catalog Garments
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Navigation Section Items */}
+        <div className="flex-1 overflow-y-auto p-3.5 space-y-6">
+          {navSections.map((section) => (
+            <div key={section.title} className="space-y-1">
+              <div className="px-3 text-[10px] font-black uppercase tracking-wider text-slate-500 mb-1.5">
+                {section.title}
+              </div>
+              {section.items.map((tab) => {
+                const Icon = tab.icon;
+                const isActive = activeTab === tab.id;
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveTab(tab.id as AdminTab);
+                      setSidebarOpen(false);
+                    }}
+                    className={cn(
+                      'w-full flex items-center justify-between px-3 py-2.5 rounded-xl font-semibold text-xs tracking-wide transition-all group',
+                      isActive
+                        ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20 font-bold'
+                        : 'text-slate-400 hover:text-slate-100 hover:bg-slate-900/90'
+                    )}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <Icon
+                        size={17}
+                        className={cn(
+                          'transition-colors',
+                          isActive ? 'text-white' : 'text-slate-400 group-hover:text-slate-200'
+                        )}
+                      />
+                      <span>{tab.label}</span>
+                    </div>
+                    {tab.badge !== undefined && tab.badge > 0 && (
+                      <span
+                        className={cn(
+                          'text-[10px] px-2 py-0.5 rounded-full font-black text-white',
+                          isActive ? 'bg-rose-700/80' : tab.badgeColor || 'bg-slate-800 text-slate-300'
+                        )}
+                      >
+                        {tab.badge}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
+
+        {/* Sidebar Footer: User & Quick Links */}
+        <div className="p-3.5 border-t border-slate-800/80 bg-slate-950/80 space-y-3">
           {isAuthenticated && user?.role === 'admin' ? (
-            <div className="flex items-center gap-2.5 bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700 text-xs">
-              <ShieldCheck size={16} className="text-emerald-400" />
-              <span className="font-semibold text-slate-200">{user.name}</span>
-              <button
-                type="button"
-                onClick={logout}
-                className="text-slate-400 hover:text-rose-400 font-medium ml-1"
-                title="Logout from Admin"
-              >
-                Sign out
-              </button>
+            <div className="bg-slate-900/80 border border-slate-800 rounded-xl p-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2 min-w-0">
+                  <div className="w-7 h-7 rounded-lg bg-emerald-500/10 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                    <ShieldCheck size={15} />
+                  </div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-slate-200 truncate">{user.name}</div>
+                    <div className="text-[10px] text-emerald-400 uppercase font-black tracking-wider">
+                      {user.role}
+                    </div>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={logout}
+                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-400 hover:bg-slate-800 transition-colors"
+                  title="Sign out"
+                >
+                  <LogOut size={14} />
+                </button>
+              </div>
             </div>
           ) : (
             <button
@@ -736,100 +899,84 @@ export const AdminPage: React.FC = () => {
                 loginAsAdmin();
                 showToast('Signed in with full Administrator access', 'success');
               }}
-              className="flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg shadow-sm transition-colors"
+              className="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold py-2 rounded-xl transition-colors shadow-sm"
             >
               <UserCheck size={14} />
               <span>Enable Admin Mode</span>
             </button>
           )}
 
-          <button
-            type="button"
-            onClick={refreshData}
-            disabled={loading}
-            className="p-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors"
-            title="Refresh Data"
-          >
-            <RefreshCw size={15} className={cn(loading && 'animate-spin')} />
-          </button>
-
-          <Link
-            to="/"
-            className="flex items-center gap-1.5 text-xs font-bold text-slate-300 hover:text-white bg-slate-800 hover:bg-slate-700 px-3 py-1.5 rounded-lg transition-colors border border-slate-700"
-          >
-            <span>View Store</span>
-            <ExternalLink size={13} />
-          </Link>
+          <div className="flex items-center gap-2 pt-1">
+            <Link
+              to="/"
+              className="flex-1 flex items-center justify-center gap-1.5 text-[11px] font-bold text-slate-400 hover:text-white bg-slate-900 hover:bg-slate-800 py-2 rounded-lg transition-colors border border-slate-800"
+            >
+              <span>View Storefront</span>
+              <ExternalLink size={12} />
+            </Link>
+            <button
+              type="button"
+              onClick={refreshData}
+              disabled={loading}
+              className="p-2 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors border border-slate-800"
+              title="Refresh Data"
+            >
+              <RefreshCw size={13} className={cn(loading && 'animate-spin')} />
+            </button>
+          </div>
         </div>
-      </header>
+      </aside>
 
-      {/* Main Layout Container */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        {/* Navigation Tabs */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-4 mb-6 scrollbar-hide border-b border-slate-800">
-          {[
-            { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-            {
-              id: 'orders',
-              label: 'Orders',
-              icon: ShoppingBag,
-              badge: orders.filter((o) => o.status === 'placed' || o.status === 'confirmed').length,
-            },
-            { id: 'products', label: 'Products', icon: Package, badge: products.length },
-            {
-              id: 'inventory',
-              label: 'Inventory',
-              icon: Boxes,
-              badge: analytics?.lowStockCount,
-              badgeColor: 'bg-rose-500',
-            },
-            { id: 'coupons', label: 'Coupons & Promos', icon: Tag },
-            { id: 'analytics', label: 'Sales & Analytics', icon: TrendingUp },
-            {
-              id: 'team',
-              label: 'Admin Access',
-              icon: KeyRound,
-              badge: teamMembers.length,
-              badgeColor: 'bg-indigo-600',
-            },
-            {
-              id: 'sessions',
-              label: 'My Sessions',
-              icon: ShieldAlert,
-              badge: sessions.length,
-              badgeColor: 'bg-emerald-600',
-            },
-          ].map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => setActiveTab(tab.id as AdminTab)}
-                className={cn(
-                  'flex items-center gap-2 px-4 py-2.5 rounded-xl font-bold text-xs uppercase tracking-wider transition-all whitespace-nowrap',
-                  isActive
-                    ? 'bg-rose-500 text-white shadow-lg shadow-rose-500/20'
-                    : 'bg-slate-800/60 text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-                )}
-              >
-                <Icon size={16} />
-                <span>{tab.label}</span>
-                {tab.badge !== undefined && tab.badge > 0 && (
-                  <span
-                    className={cn(
-                      'text-[10px] px-1.5 py-0.2 rounded-full font-black text-white ml-0.5',
-                      tab.badgeColor || 'bg-slate-900/80'
-                    )}
-                  >
-                    {tab.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
+      {/* Backdrop for Mobile Sidebar */}
+      {sidebarOpen && (
+        <div
+          onClick={() => setSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-black/60 backdrop-blur-sm lg:hidden"
+        />
+      )}
+
+      {/* Main Content Area */}
+      <main className="flex-1 min-w-0 min-h-screen flex flex-col bg-slate-900">
+        {/* Top Desktop Bar */}
+        <header className="hidden lg:flex items-center justify-between px-8 py-4 bg-slate-950/60 border-b border-slate-800/80 sticky top-0 z-30 backdrop-blur-md">
+          <div>
+            <h1 className="text-base font-extrabold text-white capitalize flex items-center gap-2">
+              <span>
+                {activeTab === 'team'
+                  ? 'Admin Access & Staff'
+                  : activeTab === 'sessions'
+                  ? 'Active Sessions & Security'
+                  : activeTab === 'analytics'
+                  ? 'Sales & Revenue Analytics'
+                  : activeTab === 'coupons'
+                  ? 'Promotions & Coupons'
+                  : `${activeTab} Management`}
+              </span>
+            </h1>
+            <p className="text-xs text-slate-400 mt-0.5">StyleBazaar Enterprise Administration Console</p>
+          </div>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={refreshData}
+              disabled={loading}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors border border-slate-700"
+            >
+              <RefreshCw size={13} className={cn(loading && 'animate-spin')} />
+              <span>Sync Live Data</span>
+            </button>
+            <Link
+              to="/"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold transition-colors border border-slate-700"
+            >
+              <span>View Storefront</span>
+              <ExternalLink size={13} />
+            </Link>
+          </div>
+        </header>
+
+        {/* Tab Content Container */}
+        <div className="flex-1 p-4 sm:p-6 lg:p-8 max-w-7xl w-full mx-auto">
 
         {/* ======================================================== */}
         {/* TAB 1: OVERVIEW DASHBOARD */}
@@ -2018,7 +2165,8 @@ export const AdminPage: React.FC = () => {
             </div>
           </div>
         )}
-      </div>
+        </div>
+      </main>
 
       {/* ======================================================== */}
       {/* MODAL: ORDER DETAILS & TIMELINE */}
