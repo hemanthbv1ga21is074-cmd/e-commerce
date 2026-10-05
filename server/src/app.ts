@@ -52,14 +52,18 @@ app.use(
       if (allowedOrigins.includes(origin)) {
         return callback(null, true);
       }
+      try {
+        const host = new URL(origin).hostname;
+        if (host.endsWith('.vercel.app') || host === 'localhost' || host === '127.0.0.1') {
+          return callback(null, true);
+        }
+      } catch {
+        // invalid URL
+      }
       if (env.NODE_ENV === 'production') {
         return callback(new Error('CORS request rejected: origin not allowed'));
       }
-      // In development, only allow localhost and 127.0.0.1 origins
-      if (/^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin)) {
-        return callback(null, true);
-      }
-      return callback(new Error('CORS request rejected: origin not allowed'));
+      return callback(null, true);
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
