@@ -21,6 +21,12 @@ import {
   Eye,
   X,
   UserCheck,
+  UploadCloud,
+  Image as ImageIcon,
+  Trash2,
+  Star,
+  Edit2,
+  Link as LinkIcon,
 } from 'lucide-react';
 import {
   getAdminOrders,
@@ -29,6 +35,7 @@ import {
   updateVariantStock,
   getAdminProductsList,
   createAdminProduct,
+  updateAdminProduct,
   deleteAdminProduct,
   getAdminAnalytics,
   getStoredCoupons,
@@ -66,12 +73,18 @@ export const AdminPage: React.FC = () => {
   const [productSearch, setProductSearch] = useState('');
   const [productDemographic, setProductDemographic] = useState<'all' | 'men' | 'women' | 'kids'>('all');
 
-  // Modals
+  // Modals & Selection
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [isAddProductOpen, setIsAddProductOpen] = useState(false);
   const [isAddCouponOpen, setIsAddCouponOpen] = useState(false);
   const [updatingOrderId, setUpdatingOrderId] = useState<string | null>(null);
   const [updatingVariantId, setUpdatingVariantId] = useState<string | null>(null);
+
+  // Product Editing & Image Management
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [productImages, setProductImages] = useState<string[]>([]);
+  const [imageInputMode, setImageInputMode] = useState<'upload' | 'link'>('upload');
+  const [linkInput, setLinkInput] = useState('');
 
   // New Product Form state
   const [newProduct, setNewProduct] = useState({
@@ -130,6 +143,96 @@ export const AdminPage: React.FC = () => {
     refreshData();
   }, [orderStatusFilter]);
 
+  // Open modal in Add mode
+  const handleOpenAddProduct = () => {
+    setEditingProductId(null);
+    setNewProduct({
+      title: '',
+      brand: '',
+      gender: 'men',
+      category: 'T-Shirts',
+      price: 999,
+      mrp: 1499,
+      fabric: '100% Premium Cotton',
+      fit: 'Regular Fit',
+      description: '',
+      imageUrl: '',
+      stockSmall: 12,
+      stockMedium: 15,
+      stockLarge: 10,
+      stockXL: 8,
+    });
+    setProductImages([]);
+    setLinkInput('');
+    setImageInputMode('upload');
+    setIsAddProductOpen(true);
+  };
+
+  // Open modal in Edit mode
+  const handleOpenEditProduct = (p: Product) => {
+    setEditingProductId(p.id);
+    const sizeStockMap: Record<string, number> = {};
+    p.sizes?.forEach((s) => {
+      sizeStockMap[s.name.toUpperCase()] = s.stock;
+    });
+
+    setNewProduct({
+      title: p.title,
+      brand: p.brand,
+      gender: (p.gender || 'men') as 'men' | 'women' | 'kids',
+      category: p.categoryPath?.[p.categoryPath.length - 1] || 'T-Shirts',
+      price: p.price,
+      mrp: p.mrp,
+      fabric: p.fabric || '100% Premium Cotton',
+      fit: p.fit || 'Regular Fit',
+      description: p.description || '',
+      imageUrl: p.images?.[0] || '',
+      stockSmall: sizeStockMap['S'] ?? 10,
+      stockMedium: sizeStockMap['M'] ?? 15,
+      stockLarge: sizeStockMap['L'] ?? 10,
+      stockXL: sizeStockMap['XL'] ?? 8,
+    });
+
+    setProductImages(p.images && p.images.length > 0 ? [...p.images] : []);
+    setLinkInput('');
+    setIsAddProductOpen(true);
+  };
+
+  // Image Upload File Handler
+  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith('image/')) {
+        showToast('Please upload valid image files (PNG, JPG, WebP)', 'error');
+        return;
+      }
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const dataUrl = event.target?.result as string;
+        if (dataUrl) {
+          setProductImages((prev) => [...prev, dataUrl]);
+          showToast(`Uploaded ${file.name}`, 'success');
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
+  };
+
+  // Direct Image Link Handler
+  const handleAddLink = () => {
+    if (!linkInput.trim()) return;
+    const url = linkInput.trim();
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      showToast('Please enter a valid URL starting with http:// or https://', 'error');
+      return;
+    }
+    setProductImages((prev) => [...prev, url]);
+    setLinkInput('');
+    showToast('Image link added', 'success');
+  };
+
   // Handle Order Status Update
   const handleOrderStatusChange = async (orderId: string, newStatus: OrderStatus) => {
     setUpdatingOrderId(orderId);
@@ -178,7 +281,7 @@ export const AdminPage: React.FC = () => {
     }
   };
 
-  // Handle Add Product Submit
+  // Handle Add / Edit Product Submit
   const handleAddProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newProduct.title || !newProduct.brand) {
@@ -194,10 +297,13 @@ export const AdminPage: React.FC = () => {
       ];
 
       const fallbackImg =
+        productImages[0] ||
         newProduct.imageUrl.trim() ||
         'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=800&auto=format&fit=crop&q=80';
 
-      const created = await createAdminProduct({
+      const finalImages = productImages.length > 0 ? productImages : [fallbackImg];
+
+      const productPayload = {
         title: newProduct.title.trim(),
         brand: newProduct.brand.trim(),
         gender: newProduct.gender,
@@ -213,22 +319,32 @@ export const AdminPage: React.FC = () => {
         careInstructions: ['Machine wash warm', 'Do not bleach', 'Tumble dry low'],
         deliveryEstimateDays: 3,
         returnWindowDays: 30,
-        images: [fallbackImg],
-        colors: [{ name: 'Standard', hex: '#1a1a2e', images: [fallbackImg] }],
+        images: finalImages,
+        colors: [{ name: 'Standard', hex: '#1a1a2e', images: finalImages }],
         sizes: [
           { name: 'S', stock: Number(newProduct.stockSmall) },
           { name: 'M', stock: Number(newProduct.stockMedium) },
           { name: 'L', stock: Number(newProduct.stockLarge) },
           { name: 'XL', stock: Number(newProduct.stockXL) },
         ],
-      });
+      };
 
-      setProducts((prev) => [created, ...prev]);
-      setIsAddProductOpen(false);
-      showToast(`Created product: ${created.title}! Live on storefront.`, 'success');
+      if (editingProductId) {
+        const updated = await updateAdminProduct(editingProductId, productPayload);
+        setProducts((prev) =>
+          prev.map((p) => (p.id === editingProductId ? { ...p, ...updated, images: finalImages } : p))
+        );
+        setIsAddProductOpen(false);
+        showToast(`Updated "${newProduct.title}" successfully!`, 'success');
+      } else {
+        const created = await createAdminProduct(productPayload);
+        setProducts((prev) => [created, ...prev]);
+        setIsAddProductOpen(false);
+        showToast(`Created product: ${created.title}! Live on storefront.`, 'success');
+      }
       refreshData();
     } catch {
-      showToast('Failed to create new product', 'error');
+      showToast('Failed to save product', 'error');
     }
   };
 
@@ -583,7 +699,7 @@ export const AdminPage: React.FC = () => {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setIsAddProductOpen(true)}
+                  onClick={handleOpenAddProduct}
                   className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg transition-colors shadow-sm"
                 >
                   <Plus size={15} />
@@ -876,7 +992,7 @@ export const AdminPage: React.FC = () => {
 
                 <button
                   type="button"
-                  onClick={() => setIsAddProductOpen(true)}
+                  onClick={handleOpenAddProduct}
                   className="flex items-center gap-1.5 bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg whitespace-nowrap shadow-sm transition-colors"
                 >
                   <Plus size={15} />
@@ -961,13 +1077,24 @@ export const AdminPage: React.FC = () => {
                         <ExternalLink size={12} />
                       </Link>
 
-                      <button
-                        type="button"
-                        onClick={() => handleDeleteProduct(p.id, p.title)}
-                        className="text-rose-400 hover:text-rose-300 font-semibold"
-                      >
-                        Delete
-                      </button>
+                      <div className="flex items-center gap-2.5">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditProduct(p)}
+                          className="text-slate-300 hover:text-white font-semibold inline-flex items-center gap-1 bg-slate-700/60 hover:bg-slate-700 px-2 py-0.5 rounded transition-colors"
+                        >
+                          <Edit2 size={11} />
+                          <span>Edit</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteProduct(p.id, p.title)}
+                          className="text-rose-400 hover:text-rose-300 font-semibold"
+                        >
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -1415,7 +1542,14 @@ export const AdminPage: React.FC = () => {
         <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-slate-900 border border-slate-700 rounded-2xl max-w-xl w-full max-h-[90vh] overflow-y-auto p-6 space-y-5 text-xs text-slate-200">
             <div className="flex items-center justify-between pb-3 border-b border-slate-800">
-              <h3 className="text-base font-extrabold text-white">Add New Fashion Product</h3>
+              <div>
+                <h3 className="text-base font-extrabold text-white">
+                  {editingProductId ? 'Edit Fashion Product' : 'Add New Fashion Product'}
+                </h3>
+                <p className="text-[11px] text-slate-400">
+                  {editingProductId ? 'Update garment details, images, and pricing' : 'Create and publish a new apparel item to the catalog'}
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsAddProductOpen(false)}
@@ -1521,23 +1655,157 @@ export const AdminPage: React.FC = () => {
                 </div>
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                  Image URL (Optional)
-                </label>
-                <input
-                  type="url"
-                  placeholder="https://images.unsplash.com/... (Leave empty for automated high-res fashion photo)"
-                  value={newProduct.imageUrl}
-                  onChange={(e) => setNewProduct({ ...newProduct, imageUrl: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-700 rounded-lg px-3 py-2 text-white focus:outline-none"
-                />
+              {/* DUAL-MODE IMAGE MANAGEMENT: UPLOAD + DIRECT LINK */}
+              <div className="space-y-2 p-3.5 bg-slate-950/60 rounded-xl border border-slate-800">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5">
+                    <ImageIcon size={14} className="text-rose-400" />
+                    <label className="text-[11px] font-bold text-white uppercase tracking-wider">
+                      Product Images ({productImages.length})
+                    </label>
+                  </div>
+
+                  {/* Toggle between Upload and Link */}
+                  <div className="flex bg-slate-900 p-0.5 rounded-lg border border-slate-700 text-[10px] font-bold">
+                    <button
+                      type="button"
+                      onClick={() => setImageInputMode('upload')}
+                      className={cn(
+                        'px-2.5 py-1 rounded transition-colors flex items-center gap-1',
+                        imageInputMode === 'upload'
+                          ? 'bg-rose-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      )}
+                    >
+                      <UploadCloud size={11} />
+                      <span>Upload File</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setImageInputMode('link')}
+                      className={cn(
+                        'px-2.5 py-1 rounded transition-colors flex items-center gap-1',
+                        imageInputMode === 'link'
+                          ? 'bg-rose-600 text-white shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      )}
+                    >
+                      <LinkIcon size={11} />
+                      <span>Image Link</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Mode 1: Drag & drop / browse file picker */}
+                {imageInputMode === 'upload' ? (
+                  <label className="border-2 border-dashed border-slate-700 hover:border-rose-500 rounded-xl p-4 flex flex-col items-center justify-center cursor-pointer transition-colors bg-slate-900/40 hover:bg-slate-900/80 group">
+                    <UploadCloud size={24} className="text-rose-400 group-hover:scale-110 transition-transform mb-1" />
+                    <span className="text-xs font-bold text-slate-200">
+                      Click to choose image or drag & drop here
+                    </span>
+                    <span className="text-[10px] text-slate-500 mt-0.5">
+                      Supports PNG, JPG, JPEG, WebP (select multiple files)
+                    </span>
+                    <input
+                      type="file"
+                      multiple
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                ) : (
+                  /* Mode 2: Direct URL link entry */
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      placeholder="https://images.unsplash.com/... or paste image URL"
+                      value={linkInput}
+                      onChange={(e) => setLinkInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddLink();
+                        }
+                      }}
+                      className="flex-1 bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-rose-500 text-xs"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleAddLink}
+                      className="px-3.5 py-2 bg-slate-800 hover:bg-slate-700 text-white font-bold rounded-lg transition-colors text-xs whitespace-nowrap"
+                    >
+                      Add Link
+                    </button>
+                  </div>
+                )}
+
+                {/* Gallery of Uploaded / Linked Images */}
+                {productImages.length > 0 && (
+                  <div className="mt-3 pt-3 border-t border-slate-800">
+                    <div className="text-[10px] font-semibold text-slate-400 mb-2 flex items-center justify-between">
+                      <span>Image Gallery ({productImages.length}) — First photo is the Cover Image</span>
+                      <button
+                        type="button"
+                        onClick={() => setProductImages([])}
+                        className="text-rose-400 hover:underline text-[10px]"
+                      >
+                        Clear all
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-4 sm:grid-cols-5 gap-2.5">
+                      {productImages.map((img, idx) => (
+                        <div
+                          key={idx}
+                          className="relative aspect-[3/4] rounded-lg overflow-hidden border border-slate-700 bg-slate-900 group"
+                        >
+                          <img
+                            src={img}
+                            alt={`Product preview ${idx + 1}`}
+                            className="w-full h-full object-cover"
+                          />
+                          {idx === 0 && (
+                            <span className="absolute top-1 left-1 bg-rose-600 text-white text-[9px] font-black uppercase px-1.5 py-0.5 rounded shadow">
+                              Cover
+                            </span>
+                          )}
+                          <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-1.5">
+                            {idx !== 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const copy = [...productImages];
+                                  const [removed] = copy.splice(idx, 1);
+                                  copy.unshift(removed);
+                                  setProductImages(copy);
+                                }}
+                                className="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-amber-400 shadow"
+                                title="Set as primary cover photo"
+                              >
+                                <Star size={13} />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setProductImages(productImages.filter((_, i) => i !== idx))}
+                              className="p-1.5 rounded-md bg-rose-900 hover:bg-rose-700 text-white shadow"
+                              title="Delete photo"
+                            >
+                              <Trash2 size={13} />
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Initial stock per size */}
               <div>
                 <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
-                  Initial Stock Units
+                  Stock Units by Size
                 </label>
                 <div className="grid grid-cols-4 gap-2">
                   <div>
@@ -1547,7 +1815,7 @@ export const AdminPage: React.FC = () => {
                       min={0}
                       value={newProduct.stockSmall}
                       onChange={(e) => setNewProduct({ ...newProduct, stockSmall: Number(e.target.value) })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-center"
+                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-center font-mono"
                     />
                   </div>
                   <div>
@@ -1557,7 +1825,7 @@ export const AdminPage: React.FC = () => {
                       min={0}
                       value={newProduct.stockMedium}
                       onChange={(e) => setNewProduct({ ...newProduct, stockMedium: Number(e.target.value) })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-center"
+                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-center font-mono"
                     />
                   </div>
                   <div>
@@ -1567,7 +1835,7 @@ export const AdminPage: React.FC = () => {
                       min={0}
                       value={newProduct.stockLarge}
                       onChange={(e) => setNewProduct({ ...newProduct, stockLarge: Number(e.target.value) })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-center"
+                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-center font-mono"
                     />
                   </div>
                   <div>
@@ -1577,7 +1845,7 @@ export const AdminPage: React.FC = () => {
                       min={0}
                       value={newProduct.stockXL}
                       onChange={(e) => setNewProduct({ ...newProduct, stockXL: Number(e.target.value) })}
-                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-center"
+                      className="w-full bg-slate-950 border border-slate-700 rounded px-2 py-1 text-white text-center font-mono"
                     />
                   </div>
                 </div>
@@ -1595,7 +1863,7 @@ export const AdminPage: React.FC = () => {
                   type="submit"
                   className="px-5 py-2 rounded-lg bg-rose-600 hover:bg-rose-500 text-white font-bold transition-colors shadow-sm"
                 >
-                  Publish to Storefront
+                  {editingProductId ? 'Save Product Changes' : 'Publish to Storefront'}
                 </button>
               </div>
             </form>

@@ -19,7 +19,7 @@ export async function isDbAvailable(): Promise<boolean> {
   const port = match && match[2] ? parseInt(match[2], 10) : 5432;
 
   dbAvailable = await new Promise<boolean>((resolve) => {
-    const socket = net.createConnection({ host, port, timeout: 200 });
+    const socket = net.createConnection({ host, port, timeout: 3000 });
     socket.on('connect', () => {
       socket.destroy();
       resolve(true);

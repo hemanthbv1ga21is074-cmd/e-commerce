@@ -106,3 +106,64 @@ adminRouter.patch('/inventory', async (req: AuthenticatedRequest, res: Response,
     next(err);
   }
 });
+
+// POST /api/admin/products - Create a new product
+adminRouter.post('/products', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const created = await adminService.createProduct(req.body);
+    res.status(201).json({
+      success: true,
+      data: created,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// PUT /api/admin/products/:id - Update an existing product
+adminRouter.put('/products/:id', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const updated = await adminService.updateProduct(req.params.id, req.body);
+    res.json({
+      success: true,
+      data: updated,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /api/admin/products/:id - Delete an existing product
+adminRouter.delete('/products/:id', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    await adminService.deleteProduct(req.params.id);
+    res.json({
+      success: true,
+      message: 'Product successfully deleted',
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /api/admin/upload - Upload an image (base64 or link)
+adminRouter.post('/upload', async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+  try {
+    const { image, filename } = req.body;
+    if (!image) {
+      throw new BadRequestError('Image data or URL is required');
+    }
+    // If it's already a link (http/https), return it directly
+    if (typeof image === 'string' && (image.startsWith('http://') || image.startsWith('https://'))) {
+      return res.json({ success: true, url: image });
+    }
+    // If it's a data URL, return it or store it
+    res.json({
+      success: true,
+      url: image,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+

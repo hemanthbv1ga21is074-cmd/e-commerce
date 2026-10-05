@@ -625,38 +625,82 @@ export type NewProductInput = Omit<
 export async function createAdminProduct(
   productData: NewProductInput
 ): Promise<Product> {
-  return apiCall(() => {
-    const custom = getCustomProducts();
-    const id = `custom-${Date.now()}`;
-    const slug = `${productData.brand.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${productData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}`;
+  return apiCall(
+    () => {
+      const custom = getCustomProducts();
+      const id = `custom-${Date.now()}`;
+      const slug = `${productData.brand.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${productData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${Date.now().toString().slice(-4)}`;
 
-    const newProduct: Product = {
-      ...productData,
-      id,
-      slug,
-      rating: 4.5,
-      ratingCount: 1,
-      createdAt: new Date().toISOString(),
-      discountPercent:
-        productData.mrp > productData.price
-          ? Math.round(((productData.mrp - productData.price) / productData.mrp) * 100)
-          : 0,
-      tags: productData.tags || ['new'],
-    };
+      const newProduct: Product = {
+        ...productData,
+        id,
+        slug,
+        rating: 4.5,
+        ratingCount: 1,
+        createdAt: new Date().toISOString(),
+        discountPercent:
+          productData.mrp > productData.price
+            ? Math.round(((productData.mrp - productData.price) / productData.mrp) * 100)
+            : 0,
+        tags: productData.tags || ['new'],
+      };
 
-    saveCustomProducts([newProduct, ...custom]);
-    return newProduct;
-  });
+      saveCustomProducts([newProduct, ...custom]);
+      return newProduct;
+    },
+    async () => {
+      const res = await api<{ success: boolean; data: Product }>('/admin/products', {
+        method: 'POST',
+        body: JSON.stringify(productData),
+      });
+      return res.data;
+    }
+  );
+}
+
+export async function updateAdminProduct(
+  productId: string,
+  productData: Partial<Product>
+): Promise<Product> {
+  return apiCall(
+    () => {
+      const custom = getCustomProducts();
+      const idx = custom.findIndex((p) => p.id === productId);
+      if (idx !== -1) {
+        custom[idx] = { ...custom[idx], ...productData };
+        saveCustomProducts(custom);
+        return custom[idx];
+      }
+      const base = baseProducts.find((p) => p.id === productId);
+      const updated = { ...(base || {}), ...productData, id: productId } as Product;
+      saveCustomProducts([updated, ...custom.filter((p) => p.id !== productId)]);
+      return updated;
+    },
+    async () => {
+      const res = await api<{ success: boolean; data: Product }>(`/admin/products/${productId}`, {
+        method: 'PUT',
+        body: JSON.stringify(productData),
+      });
+      return res.data;
+    }
+  );
 }
 
 export async function deleteAdminProduct(productId: string): Promise<boolean> {
-  return apiCall(() => {
-    const custom = getCustomProducts();
-    const filtered = custom.filter((p) => p.id !== productId);
-    saveCustomProducts(filtered);
-    return true;
-  });
+  return apiCall(
+    () => {
+      const custom = getCustomProducts();
+      const filtered = custom.filter((p) => p.id !== productId);
+      saveCustomProducts(filtered);
+      return true;
+    },
+    async () => {
+      await api(`/admin/products/${productId}`, { method: 'DELETE' });
+      return true;
+    }
+  );
 }
+
 
 /* ─── API: Analytics ─── */
 export async function getAdminAnalytics(): Promise<AdminAnalyticsData> {
