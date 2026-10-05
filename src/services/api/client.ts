@@ -31,6 +31,18 @@ export function clearStoredAccessToken(): void {
   localStorage.removeItem(ACCESS_TOKEN_KEY);
 }
 
+function getAdminCsrfToken(): string | null {
+  try {
+    if (typeof document !== 'undefined') {
+      const match = document.cookie.match(new RegExp('(^| )sb_admin_csrf=([^;]+)'));
+      if (match) return decodeURIComponent(match[2]);
+    }
+    return typeof window !== 'undefined' ? localStorage.getItem('sb_admin_csrf') : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Generic fetch wrapper for real API calls. */
 export async function api<T>(
   path: string,
@@ -45,8 +57,17 @@ export async function api<T>(
     headers['Authorization'] = `Bearer ${token}`;
   }
 
+  // Automatically attach Admin CSRF token on state-changing requests
+  const method = (options.method || 'GET').toUpperCase();
+  if (['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) {
+    const csrf = getAdminCsrfToken();
+    if (csrf) {
+      headers['X-Admin-CSRF-Token'] = csrf;
+    }
+  }
+
   const res = await fetch(`${API_BASE}${path}`, {
-    credentials: 'include', // Send httpOnly refresh cookie
+    credentials: 'include', // Send httpOnly session & refresh cookie
     ...options,
     headers,
   });

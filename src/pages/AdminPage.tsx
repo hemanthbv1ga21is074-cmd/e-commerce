@@ -30,6 +30,14 @@ import {
   ShieldAlert,
   KeyRound,
   Mail,
+  Laptop,
+  LogOut,
+  Key,
+  Copy,
+  Check,
+  Download,
+  UserX,
+  RotateCcw,
 } from 'lucide-react';
 import {
   getAdminOrders,
@@ -43,10 +51,19 @@ import {
   getAdminAnalytics,
   getStoredCoupons,
   saveStoredCoupons,
-  getAdminTeam,
-  grantAdminRole,
-  revokeAdminRole,
+  getAdminTeamAndInvites,
+  inviteAdminStaff,
+  deactivateAdminStaff,
+  resetAdminStaff2Fa,
+  changeAdminStaffRole,
+  getAdminSessions,
+  revokeAdminSession,
+  revokeAllAdminSessions,
+  regenerateBackupCodes,
   type AdminTeamMember,
+  type AdminInviteItem,
+  type AdminSessionItem,
+  type OffboardingTask,
   type AdminAnalyticsData,
   type InventoryVariant,
   type AdminCoupon,
@@ -55,8 +72,9 @@ import { useAuthStore } from '../store/useAuthStore';
 import { useToastStore } from '../store/useToastStore';
 import { formatCurrency, formatDate, cn } from '../utils/helpers';
 import type { Order, OrderStatus, Product, OrderItem, OrderTimeline } from '../types';
+import { AcceptInviteView } from '../components/admin/AcceptInviteView';
 
-type AdminTab = 'overview' | 'orders' | 'products' | 'inventory' | 'coupons' | 'analytics' | 'team';
+type AdminTab = 'overview' | 'orders' | 'products' | 'inventory' | 'coupons' | 'analytics' | 'team' | 'sessions';
 
 export const AdminPage: React.FC = () => {
   const { user, isAuthenticated, loginAsAdmin, logout } = useAuthStore();
@@ -72,11 +90,49 @@ export const AdminPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [coupons, setCoupons] = useState<AdminCoupon[]>([]);
   const [teamMembers, setTeamMembers] = useState<AdminTeamMember[]>([]);
+  const [pendingInvites, setPendingInvites] = useState<AdminInviteItem[]>([]);
+  const [sessions, setSessions] = useState<AdminSessionItem[]>([]);
 
   // Team & Email Access Management states
   const [newAdminEmail, setNewAdminEmail] = useState('');
-  const [newAdminRole, setNewAdminRole] = useState<'ADMIN' | 'SUPPORT'>('ADMIN');
+  const [newAdminRole, setNewAdminRole] = useState<'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT'>('ADMIN');
   const [isAddingMember, setIsAddingMember] = useState(false);
+
+  // Hardened Modals
+  const [inviteLinkModal, setInviteLinkModal] = useState<{
+    open: boolean;
+    link: string;
+    expiresAt: string;
+    email: string;
+    role: string;
+  }>({ open: false, link: '', expiresAt: '', email: '', role: '' });
+  const [copiedInviteLink, setCopiedInviteLink] = useState(false);
+
+  const [offboardingModal, setOffboardingModal] = useState<{
+    open: boolean;
+    targetUser: AdminTeamMember | null;
+    checklist: OffboardingTask[];
+    reason: string;
+  }>({ open: false, targetUser: null, checklist: [], reason: '' });
+
+  const [backupCodesModal, setBackupCodesModal] = useState<{
+    open: boolean;
+    codes: string[];
+    password: string;
+    error: string;
+    loading: boolean;
+  }>({ open: false, codes: [], password: '', error: '', loading: false });
+  const [copiedBackupCodes, setCopiedBackupCodes] = useState(false);
+
+  // Check if viewing Accept Invite flow
+  const isAcceptInviteUrl =
+    typeof window !== 'undefined' &&
+    (window.location.pathname.includes('/accept-invite') ||
+      new URLSearchParams(window.location.search).has('token'));
+
+  if (isAcceptInviteUrl) {
+    return <AcceptInviteView />;
+  }
 
   // Filter/Search states
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all');
@@ -132,12 +188,13 @@ export const AdminPage: React.FC = () => {
   const refreshData = async () => {
     setLoading(true);
     try {
-      const [analyticsData, ordersRes, inventoryRes, productsList, teamList] = await Promise.all([
+      const [analyticsData, ordersRes, inventoryRes, productsList, teamRes, sessionsList] = await Promise.all([
         getAdminAnalytics(),
         getAdminOrders({ status: orderStatusFilter !== 'all' ? orderStatusFilter : undefined }),
         getAdminInventory(),
         getAdminProductsList(),
-        getAdminTeam(),
+        getAdminTeamAndInvites(),
+        getAdminSessions(),
       ]);
 
       setAnalytics(analyticsData);
@@ -145,7 +202,9 @@ export const AdminPage: React.FC = () => {
       setInventory(inventoryRes.variants);
       setProducts(productsList);
       setCoupons(getStoredCoupons());
-      setTeamMembers(teamList);
+      setTeamMembers(teamRes.team);
+      setPendingInvites(teamRes.invites);
+      setSessions(sessionsList);
     } catch (err) {
       console.error('Failed to load admin data', err);
       showToast('Error refreshing admin data', 'error');
@@ -248,8 +307,8 @@ export const AdminPage: React.FC = () => {
     showToast('Image link added', 'success');
   };
 
-  // Authorize Email for Admin Console Access
-  const handleAuthorizeEmail = async (e: React.FormEvent) => {
+  // Staff Invite Flow (48h single-use token with 2FA requirement)
+  const handleSendInvite = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanEmail = newAdminEmail.trim().toLowerCase();
     if (!cleanEmail || !cleanEmail.includes('@')) {
@@ -258,32 +317,121 @@ export const AdminPage: React.FC = () => {
     }
     setIsAddingMember(true);
     try {
-      await grantAdminRole(cleanEmail, newAdminRole);
-      showToast(`Authorized ${cleanEmail} for ${newAdminRole} console access!`, 'success');
+      const res = await inviteAdminStaff(cleanEmail, newAdminRole);
+      setInviteLinkModal({
+        open: true,
+        link: res.inviteLink,
+        expiresAt: res.expiresAt,
+        email: cleanEmail,
+        role: newAdminRole,
+      });
+      showToast(`48h Staff invitation created for ${cleanEmail}!`, 'success');
       setNewAdminEmail('');
-      const updated = await getAdminTeam();
-      setTeamMembers(updated);
+      const updated = await getAdminTeamAndInvites();
+      setTeamMembers(updated.team);
+      setPendingInvites(updated.invites);
     } catch (err: any) {
-      showToast(err.message || 'Failed to authorize email', 'error');
+      showToast(err.message || 'Failed to send staff invitation', 'error');
     } finally {
       setIsAddingMember(false);
     }
   };
 
-  // Revoke Admin Access for an Email
-  const handleRevokeEmail = async (email: string) => {
-    if (email.toLowerCase() === 'admin@stylebazaar.com') {
-      showToast('Cannot revoke primary store administrator', 'error');
+  // Staff Deactivation with Immediate Session Revocation and Offboarding Checklist
+  const handleDeactivateClick = async (member: AdminTeamMember) => {
+    if (member.role === 'SUPER_ADMIN' && member.email.toLowerCase() === 'admin@stylebazaar.com') {
+      showToast('Cannot deactivate the primary super administrator', 'error');
       return;
     }
-    if (!confirm(`Are you sure you want to revoke admin console access for ${email}?`)) return;
+    const reason = prompt(`Enter deactivation reason for ${member.email}:`, 'Staff offboarding') || '';
     try {
-      await revokeAdminRole(email);
-      showToast(`Revoked admin access for ${email}`, 'info');
-      const updated = await getAdminTeam();
-      setTeamMembers(updated);
+      const res = await deactivateAdminStaff(member.id, reason);
+      setOffboardingModal({
+        open: true,
+        targetUser: member,
+        checklist: res.offboardingChecklist,
+        reason,
+      });
+      showToast(`Deactivated ${member.email}. All sessions terminated.`, 'info');
+      const updated = await getAdminTeamAndInvites();
+      setTeamMembers(updated.team);
     } catch (err: any) {
-      showToast(err.message || 'Failed to revoke access', 'error');
+      showToast(err.message || 'Failed to deactivate staff member', 'error');
+    }
+  };
+
+  // Reset 2FA for staff member (SUPER_ADMIN only)
+  const handleResetStaff2FaClick = async (email: string) => {
+    if (!confirm(`Are you sure you want to reset 2FA credentials for ${email}? An audit alert will be recorded and user will be forced to re-enroll.`)) {
+      return;
+    }
+    try {
+      await resetAdminStaff2Fa(email);
+      showToast(`2FA reset for ${email}. Email alert dispatched.`, 'success');
+      const updated = await getAdminTeamAndInvites();
+      setTeamMembers(updated.team);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to reset 2FA', 'error');
+    }
+  };
+
+  // Change staff role with hierarchy enforcement
+  const handleChangeRoleClick = async (member: AdminTeamMember, newRole: 'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT') => {
+    if (member.role === newRole) return;
+    if (!confirm(`Change role of ${member.email} from ${member.role} to ${newRole}? Active sessions will be terminated.`)) {
+      return;
+    }
+    try {
+      await changeAdminStaffRole(member.id, newRole);
+      showToast(`Role updated to ${newRole} for ${member.email}`, 'success');
+      const updated = await getAdminTeamAndInvites();
+      setTeamMembers(updated.team);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to change role', 'error');
+    }
+  };
+
+  // Session Revocation handlers
+  const handleRevokeSingleSession = async (sessionId: string) => {
+    try {
+      await revokeAdminSession(sessionId);
+      showToast('Session terminated', 'info');
+      const updated = await getAdminSessions();
+      setSessions(updated);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to revoke session', 'error');
+    }
+  };
+
+  const handleRevokeAllSessionsClick = async () => {
+    if (!confirm('Are you sure you want to revoke all other administrative sessions?')) return;
+    try {
+      await revokeAllAdminSessions(true);
+      showToast('All other sessions revoked successfully', 'success');
+      const updated = await getAdminSessions();
+      setSessions(updated);
+    } catch (err: any) {
+      showToast(err.message || 'Failed to revoke sessions', 'error');
+    }
+  };
+
+  const handleRegenerateBackupCodesSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!backupCodesModal.password) {
+      setBackupCodesModal((prev) => ({ ...prev, error: 'Password is required' }));
+      return;
+    }
+    setBackupCodesModal((prev) => ({ ...prev, loading: true, error: '' }));
+    try {
+      const codes = await regenerateBackupCodes(backupCodesModal.password);
+      setBackupCodesModal((prev) => ({ ...prev, codes, loading: false, password: '' }));
+      showToast('Generated 10 new 2FA backup codes', 'success');
+    } catch (err: any) {
+      setBackupCodesModal((prev) => ({
+        ...prev,
+        loading: false,
+        error: err.message || 'Password confirmation failed',
+      }));
     }
   };
 
@@ -643,6 +791,13 @@ export const AdminPage: React.FC = () => {
               icon: KeyRound,
               badge: teamMembers.length,
               badgeColor: 'bg-indigo-600',
+            },
+            {
+              id: 'sessions',
+              label: 'My Sessions',
+              icon: ShieldAlert,
+              badge: sessions.length,
+              badgeColor: 'bg-emerald-600',
             },
           ].map((tab) => {
             const Icon = tab.icon;
@@ -1514,54 +1669,59 @@ export const AdminPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Quick Metrics */}
+            {/* Quick Hardened Metrics */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-xl">
-                <span className="text-xs text-slate-400 uppercase font-semibold">Authorized Admin Accounts</span>
+                <span className="text-xs text-slate-400 uppercase font-semibold">Authorized Staff Accounts</span>
                 <div className="text-2xl font-black text-white mt-1">{teamMembers.length}</div>
-                <span className="text-[11px] text-emerald-400 mt-1 block">Full Console Privileges</span>
+                <span className="text-[11px] text-emerald-400 mt-1 block">
+                  {teamMembers.filter((m) => m.isActive !== false).length} Active • {teamMembers.filter((m) => m.isActive === false).length} Deactivated
+                </span>
               </div>
               <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-xl">
-                <span className="text-xs text-slate-400 uppercase font-semibold">Primary Super-Admin</span>
-                <div className="text-sm font-bold text-rose-400 mt-2 truncate font-mono">admin@stylebazaar.com</div>
-                <span className="text-[11px] text-slate-400 block mt-0.5">Permanent Root Access</span>
+                <span className="text-xs text-slate-400 uppercase font-semibold">2FA Security Posture</span>
+                <div className="text-2xl font-black text-emerald-400 mt-1">
+                  {teamMembers.filter((m) => m.twoFactorEnabled).length} / {teamMembers.length} Enrolled
+                </div>
+                <span className="text-[11px] text-slate-400 block mt-0.5">Mandatory for all new invites</span>
               </div>
               <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-xl">
-                <span className="text-xs text-slate-400 uppercase font-semibold">Access Policy</span>
-                <div className="text-sm font-bold text-white mt-2">Role-Based Access Control (RBAC)</div>
-                <span className="text-[11px] text-slate-400 block mt-0.5">Synced with Supabase User Table</span>
+                <span className="text-xs text-slate-400 uppercase font-semibold">Live Admin Sessions</span>
+                <div className="text-2xl font-black text-rose-400 mt-1 font-mono">{sessions.length}</div>
+                <span className="text-[11px] text-slate-400 block mt-0.5">30m Idle Timeout • 12h Absolute</span>
               </div>
             </div>
 
-            {/* Authorize New Admin Email Form */}
+            {/* Invite New Staff Form (48-Hour Single-Use Token + 2FA Enforced) */}
             <div className="bg-slate-800/70 border border-slate-700/60 rounded-2xl p-6 space-y-4">
               <div className="flex items-center gap-2">
                 <Mail size={16} className="text-rose-400" />
                 <h4 className="text-sm font-extrabold text-white uppercase tracking-wider">
-                  Authorize New Admin or Staff Email
+                  Invite Staff by Email (Single-Use 48h Link)
                 </h4>
               </div>
 
-              <form onSubmit={handleAuthorizeEmail} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+              <form onSubmit={handleSendInvite} className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
                 <div className="flex-1 relative">
                   <input
                     type="email"
                     required
-                    placeholder="Enter email address (e.g. yourname@domain.com)"
+                    placeholder="Enter staff email address (e.g. staff@stylebazaar.com)"
                     value={newAdminEmail}
                     onChange={(e) => setNewAdminEmail(e.target.value)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-rose-500"
                   />
                 </div>
 
-                <div className="w-full sm:w-48">
+                <div className="w-full sm:w-56">
                   <select
                     value={newAdminRole}
-                    onChange={(e) => setNewAdminRole(e.target.value as 'ADMIN' | 'SUPPORT')}
+                    onChange={(e) => setNewAdminRole(e.target.value as any)}
                     className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3 py-2.5 text-xs text-white focus:outline-none focus:border-rose-500"
                   >
-                    <option value="ADMIN">ADMIN (Full Control)</option>
+                    <option value="ADMIN">ADMIN (Store & Catalog)</option>
                     <option value="SUPPORT">SUPPORT (Orders Only)</option>
+                    <option value="SUPER_ADMIN">SUPER_ADMIN (Full Governance)</option>
                   </select>
                 </div>
 
@@ -1571,107 +1731,289 @@ export const AdminPage: React.FC = () => {
                   className="flex items-center justify-center gap-2 bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold text-xs px-5 py-2.5 rounded-xl transition-colors shadow-sm whitespace-nowrap"
                 >
                   <ShieldCheck size={15} />
-                  <span>{isAddingMember ? 'Authorizing...' : 'Authorize Email'}</span>
+                  <span>{isAddingMember ? 'Creating Invite...' : 'Generate 48h Invite'}</span>
                 </button>
               </form>
               <p className="text-[11px] text-slate-400">
-                Granting access enables this email to sign in and manage products, catalog pricing, orders, and customer refunds.
+                Staff invites generate a cryptographically secure, single-use 48-hour link stored as a SHA-256 hash. The invitee is required to set a password and enroll 2FA with 10 backup codes before first access.
               </p>
             </div>
+
+            {/* Pending Invitations Section */}
+            {pendingInvites.length > 0 && (
+              <div className="bg-slate-800/50 border border-slate-700/60 rounded-2xl overflow-hidden">
+                <div className="px-5 py-3.5 border-b border-slate-700/80 flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs font-bold text-amber-400 uppercase tracking-wider">
+                    <Clock size={14} />
+                    <span>Pending Invitations ({pendingInvites.length})</span>
+                  </div>
+                  <span className="text-[11px] text-slate-400">Single-use links expiring in 48 hours</span>
+                </div>
+                <div className="divide-y divide-slate-700/60">
+                  {pendingInvites.map((inv) => (
+                    <div key={inv.id} className="px-5 py-3 flex items-center justify-between text-xs">
+                      <div>
+                        <span className="font-mono font-bold text-white">{inv.email}</span>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          Role: <strong className="text-emerald-400">{inv.role}</strong> • Invited by {inv.invitedBy}
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                          Expires {formatDate(inv.expiresAt)}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {/* List of Authorized Admins */}
             <div className="bg-slate-800/70 border border-slate-700/60 rounded-2xl overflow-hidden">
               <div className="px-5 py-4 border-b border-slate-700/80 flex items-center justify-between">
                 <h4 className="text-xs font-bold text-white uppercase tracking-wider">
-                  Currently Authorized Emails ({teamMembers.length})
+                  Staff Accounts & Governance ({teamMembers.length})
                 </h4>
-                <span className="text-[11px] text-slate-400">Synchronized with database User table</span>
+                <span className="text-[11px] text-slate-400">Strict hierarchy & session termination controls</span>
               </div>
 
               <div className="divide-y divide-slate-700/60">
-                {teamMembers.map((member) => (
+                {teamMembers.map((member) => {
+                  const isRootAdmin = member.email.toLowerCase() === 'admin@stylebazaar.com';
+                  const isDeactivated = member.isActive === false;
+
+                  return (
+                    <div
+                      key={member.id}
+                      className={cn(
+                        'px-5 py-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 hover:bg-slate-700/30 transition-colors',
+                        isDeactivated && 'opacity-60 bg-slate-950/40'
+                      )}
+                    >
+                      <div className="flex items-center gap-3">
+                        <div
+                          className={cn(
+                            'w-10 h-10 rounded-full font-black text-sm flex items-center justify-center uppercase shadow',
+                            member.role === 'SUPER_ADMIN'
+                              ? 'bg-gradient-to-tr from-purple-600 to-rose-600 text-white'
+                              : member.role === 'ADMIN'
+                              ? 'bg-gradient-to-tr from-emerald-600 to-teal-600 text-white'
+                              : 'bg-gradient-to-tr from-blue-600 to-indigo-600 text-white'
+                          )}
+                        >
+                          {member.email[0]}
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-white text-xs font-mono">{member.email}</span>
+                            {isRootAdmin && (
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
+                                Primary SuperAdmin
+                              </span>
+                            )}
+                            {isDeactivated && (
+                              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-900/60 text-rose-300 border border-rose-700">
+                                Deactivated
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-slate-400 mt-0.5 flex items-center gap-2">
+                            <span>{member.name || member.email.split('@')[0]}</span>
+                            <span>•</span>
+                            <span>Created {formatDate(member.createdAt)}</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap items-center gap-2.5 w-full md:w-auto justify-between md:justify-end">
+                        {/* 2FA Status Badge */}
+                        {member.twoFactorEnabled ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <ShieldCheck size={12} /> 2FA Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                            <Clock size={12} /> 2FA Pending
+                          </span>
+                        )}
+
+                        {/* Role Selector */}
+                        {!isRootAdmin && !isDeactivated ? (
+                          <select
+                            value={member.role}
+                            onChange={(e) => handleChangeRoleClick(member, e.target.value as any)}
+                            className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs font-bold text-slate-200 focus:outline-none focus:border-rose-500"
+                          >
+                            <option value="SUPER_ADMIN">SUPER_ADMIN</option>
+                            <option value="ADMIN">ADMIN</option>
+                            <option value="SUPPORT">SUPPORT</option>
+                          </select>
+                        ) : (
+                          <span
+                            className={cn(
+                              'text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full',
+                              member.role === 'SUPER_ADMIN'
+                                ? 'bg-purple-500/20 text-purple-300 border border-purple-500/30'
+                                : member.role === 'ADMIN'
+                                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                                : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                            )}
+                          >
+                            {member.role}
+                          </span>
+                        )}
+
+                        {/* Reset 2FA (SUPER_ADMIN only) */}
+                        {!isRootAdmin && !isDeactivated && member.twoFactorEnabled && (
+                          <button
+                            type="button"
+                            onClick={() => handleResetStaff2FaClick(member.email)}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-1 rounded border border-amber-500/20 transition-colors"
+                            title="Reset 2FA for this user (audited, sends email notice)"
+                          >
+                            <RotateCcw size={12} />
+                            <span>Reset 2FA</span>
+                          </button>
+                        )}
+
+                        {/* Deactivate Button */}
+                        {!isRootAdmin && !isDeactivated ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDeactivateClick(member)}
+                            className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-400 hover:text-rose-300 bg-rose-500/10 hover:bg-rose-500/20 px-2.5 py-1 rounded border border-rose-500/20 transition-colors"
+                          >
+                            <UserX size={12} />
+                            <span>Deactivate</span>
+                          </button>
+                        ) : isRootAdmin ? (
+                          <span className="text-[10px] text-slate-500 italic px-2">Root Protected</span>
+                        ) : (
+                          <span className="text-[10px] text-slate-500 italic px-2">Access Revoked</span>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* ======================================================== */}
+        {/* TAB 8: SESSIONS AND REQUEST SECURITY (G1 ADDENDUM) */}
+        {/* ======================================================== */}
+        {activeTab === 'sessions' && (
+          <div className="space-y-6 animate-fade-in">
+            {/* Header info */}
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-black text-white flex items-center gap-2">
+                  <ShieldAlert className="text-emerald-400" size={20} />
+                  <span>My Sessions & Request Security</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-1">
+                  Dedicated admin session cookie (<code className="text-rose-400">sb_admin_session</code>) with 30-min idle timeout and 12-hour absolute lifetime.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setBackupCodesModal({ open: true, codes: [], password: '', error: '', loading: false })}
+                  className="flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs px-3.5 py-2 rounded-xl transition-colors border border-slate-700"
+                >
+                  <Key size={14} className="text-amber-400" />
+                  <span>Regenerate 10 Backup Codes</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleRevokeAllSessionsClick}
+                  className="flex items-center gap-1.5 bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 border border-rose-500/30 font-bold text-xs px-3.5 py-2 rounded-xl transition-colors"
+                >
+                  <LogOut size={14} />
+                  <span>Revoke All Other Sessions</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Session Security Overview Cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+              <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-2xl space-y-1">
+                <span className="text-slate-400 uppercase font-semibold text-[10px]">Session Timeout Policy</span>
+                <div className="text-sm font-bold text-white">30 Min Idle / 12 Hours Max</div>
+                <p className="text-[11px] text-slate-400">Inactivity automatically terminates your admin session</p>
+              </div>
+              <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-2xl space-y-1">
+                <span className="text-slate-400 uppercase font-semibold text-[10px]">CSRF Protection</span>
+                <div className="text-sm font-bold text-emerald-400 flex items-center gap-1">
+                  <Check size={14} /> Double-Submit Header Enforced
+                </div>
+                <p className="text-[11px] text-slate-400">All POST/PUT/PATCH/DELETE calls validated</p>
+              </div>
+              <div className="bg-slate-800/70 border border-slate-700 p-4 rounded-2xl space-y-1">
+                <span className="text-slate-400 uppercase font-semibold text-[10px]">Network Hardening</span>
+                <div className="text-sm font-bold text-white">No-Store & Deny Framing</div>
+                <p className="text-[11px] text-slate-400">Strict CSP, noindex, and anti-clickjacking headers</p>
+              </div>
+            </div>
+
+            {/* Active Sessions Table */}
+            <div className="bg-slate-800/70 border border-slate-700/60 rounded-2xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-700/80 flex items-center justify-between">
+                <h4 className="text-xs font-bold text-white uppercase tracking-wider">
+                  Active Administrative Sessions ({sessions.length})
+                </h4>
+                <span className="text-[11px] text-slate-400">Login from new IP or device triggers security email alerts</span>
+              </div>
+
+              <div className="divide-y divide-slate-700/60">
+                {sessions.map((sess) => (
                   <div
-                    key={member.id}
+                    key={sess.id}
                     className="px-5 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 hover:bg-slate-700/30 transition-colors"
                   >
                     <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-full bg-gradient-to-tr from-rose-600 to-indigo-600 text-white font-black text-sm flex items-center justify-center uppercase shadow">
-                        {member.email[0]}
+                      <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 text-slate-300 flex items-center justify-center">
+                        <Laptop size={18} />
                       </div>
                       <div>
                         <div className="flex items-center gap-2">
-                          <span className="font-bold text-white text-xs font-mono">{member.email}</span>
-                          {member.email.toLowerCase() === 'admin@stylebazaar.com' && (
-                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30">
-                              Root Admin
+                          <span className="font-bold text-white text-xs font-mono">
+                            {sess.ipAddress || '127.0.0.1 (Local)'}
+                          </span>
+                          {sess.isCurrent && (
+                            <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
+                              Current Device
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5">
-                          {member.name || member.email.split('@')[0]} • Added {formatDate(member.createdAt)}
+                        <div className="text-[11px] text-slate-400 mt-0.5 truncate max-w-md">
+                          {sess.userAgent || 'Modern Web Browser'}
+                        </div>
+                        <div className="text-[10px] text-slate-500 mt-0.5">
+                          Last active: {formatDate(sess.lastActiveAt)} • Signed in: {formatDate(sess.createdAt)}
                         </div>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 w-full sm:w-auto justify-between sm:justify-end">
-                      <span
-                        className={cn(
-                          'text-[10px] font-black uppercase tracking-wider px-2.5 py-1 rounded-full',
-                          member.role === 'ADMIN'
-                            ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
-                        )}
-                      >
-                        {member.role}
-                      </span>
-
-                      {member.email.toLowerCase() !== 'admin@stylebazaar.com' ? (
+                    <div>
+                      {!sess.isCurrent ? (
                         <button
                           type="button"
-                          onClick={() => handleRevokeEmail(member.email)}
-                          className="text-xs font-semibold text-rose-400 hover:text-rose-300 hover:underline px-2 py-1 rounded"
+                          onClick={() => handleRevokeSingleSession(sess.id)}
+                          className="text-xs font-semibold text-rose-400 hover:text-rose-300 hover:underline px-3 py-1.5 rounded bg-rose-500/10 border border-rose-500/20 transition-colors"
                         >
-                          Revoke Access
+                          Revoke Session
                         </button>
                       ) : (
-                        <span className="text-[10px] text-slate-500 italic px-2">Protected</span>
+                        <span className="text-[11px] text-emerald-400 font-semibold px-2">Active Session</span>
                       )}
                     </div>
                   </div>
                 ))}
-              </div>
-            </div>
-
-            {/* Guide Card: How to Manage Admin Emails Directly in Supabase */}
-            <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 space-y-4">
-              <div className="flex items-center gap-2 text-rose-400 font-bold text-sm">
-                <ShieldAlert size={16} />
-                <span>How to Authorize Admin Emails Directly in Supabase</span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs text-slate-300">
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                  <div className="font-bold text-white text-xs">Method 1: Visual Table Editor (Easiest)</div>
-                  <ol className="list-decimal list-inside space-y-1 text-slate-400 text-[11px]">
-                    <li>Open your Supabase project in your browser.</li>
-                    <li>Click the <strong>Table Editor</strong> icon on the left sidebar.</li>
-                    <li>Select the <code className="text-rose-400">User</code> table.</li>
-                    <li>Locate the user by their email address.</li>
-                    <li>Double-click the <code className="text-emerald-400">role</code> column cell and change it to <code className="text-emerald-400">ADMIN</code>.</li>
-                  </ol>
-                </div>
-
-                <div className="p-4 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
-                  <div className="font-bold text-white text-xs">Method 2: SQL Editor (1-Click Query)</div>
-                  <p className="text-[11px] text-slate-400">
-                    Go to the <strong>SQL Editor</strong> in Supabase and run:
-                  </p>
-                  <pre className="p-2.5 rounded bg-slate-900 text-rose-300 font-mono text-[10px] overflow-x-auto border border-slate-800">
-{`UPDATE "User"
-SET "role" = 'ADMIN'
-WHERE "email" = 'your-email@example.com';`}
-                  </pre>
-                </div>
               </div>
             </div>
           </div>
@@ -2220,6 +2562,294 @@ WHERE "email" = 'your-email@example.com';`}
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: STAFF INVITATION GENERATED (SINGLE-USE 48H) */}
+      {/* ======================================================== */}
+      {inviteLinkModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 text-xs text-slate-200 animate-scale-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 text-emerald-400 flex items-center justify-center">
+                  <ShieldCheck size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">Staff Invitation Generated</h3>
+                  <p className="text-[11px] text-slate-400">Single-use link valid for 48 hours</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setInviteLinkModal((prev) => ({ ...prev, open: false }))}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5 space-y-2">
+                <div className="text-[11px] text-slate-400">
+                  Invited Email: <strong className="text-white font-mono">{inviteLinkModal.email}</strong>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  Assigned Role: <span className="font-bold text-emerald-400">{inviteLinkModal.role}</span>
+                </div>
+                <div className="text-[11px] text-slate-400">
+                  Expires On: <span className="text-amber-400 font-semibold">{formatDate(inviteLinkModal.expiresAt)}</span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">
+                  Single-Use Invitation Link
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={inviteLinkModal.link}
+                    className="flex-1 bg-slate-950 border border-slate-700 rounded-xl px-3 py-2 text-white font-mono text-[11px] select-all focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(inviteLinkModal.link);
+                      setCopiedInviteLink(true);
+                      showToast('Invitation link copied to clipboard', 'success');
+                      setTimeout(() => setCopiedInviteLink(false), 2000);
+                    }}
+                    className="flex items-center gap-1.5 px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded-xl transition-colors whitespace-nowrap"
+                  >
+                    {copiedInviteLink ? <Check size={14} /> : <Copy size={14} />}
+                    <span>{copiedInviteLink ? 'Copied' : 'Copy'}</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300">
+                The invitee must set a password and enroll in 2FA with 10 backup codes to complete activation.
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setInviteLinkModal((prev) => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: OFFBOARDING CHECKLIST & DEACTIVATION CONFIRMATION */}
+      {/* ======================================================== */}
+      {offboardingModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 text-xs text-slate-200 animate-scale-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-rose-500/20 text-rose-400 flex items-center justify-center">
+                  <UserX size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">Staff Offboarding Checklist</h3>
+                  <p className="text-[11px] text-slate-400">Account deactivation & immediate session revocation</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setOffboardingModal((prev) => ({ ...prev, open: false }))}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <div className="bg-slate-950 border border-slate-800 rounded-xl p-3.5">
+                <div className="text-[11px] text-slate-400">
+                  Target: <strong className="text-white font-mono">{offboardingModal.targetUser?.email}</strong>
+                </div>
+                <div className="text-[11px] text-slate-400 mt-1">
+                  Reason: <span className="text-slate-300 italic">{offboardingModal.reason || 'Staff offboarding'}</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <span className="block text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+                  Automated Security Actions Executed
+                </span>
+                <div className="space-y-1.5 bg-slate-950/60 border border-slate-800 rounded-xl p-3">
+                  {offboardingModal.checklist.map((task, idx) => (
+                    <div key={idx} className="flex items-center gap-2.5 text-[11px] text-slate-300 py-1">
+                      <div className="w-4 h-4 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center flex-shrink-0">
+                        <Check size={11} />
+                      </div>
+                      <span className="flex-1">{task.task}</span>
+                      <span className="text-[9px] font-black uppercase text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-500/10">
+                        {task.status}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <p className="text-[11px] text-slate-400">
+                The account has been marked inactive. Audit trails and activity logs remain preserved for compliance.
+              </p>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setOffboardingModal((prev) => ({ ...prev, open: false }))}
+                className="px-5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs transition-colors"
+              >
+                Close Checklist
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ======================================================== */}
+      {/* MODAL: REGENERATE 10 2FA BACKUP CODES */}
+      {/* ======================================================== */}
+      {backupCodesModal.open && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-lg w-full p-6 sm:p-7 space-y-5 text-xs text-slate-200 animate-scale-in">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center">
+                  <Key size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white">Emergency 2FA Backup Codes</h3>
+                  <p className="text-[11px] text-slate-400">Generate 10 single-use recovery credentials</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setBackupCodesModal({ open: false, codes: [], password: '', error: '', loading: false })}
+                className="p-1 rounded-lg bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {backupCodesModal.codes.length === 0 ? (
+              <form onSubmit={handleRegenerateBackupCodesSubmit} className="space-y-4">
+                <p className="text-[11px] text-slate-400 leading-relaxed">
+                  Regenerating backup codes will immediately invalidate all existing backup codes. Please re-authenticate with your account password to confirm:
+                </p>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-300 uppercase mb-1">
+                    Current Account Password
+                  </label>
+                  <input
+                    type="password"
+                    required
+                    placeholder="Enter current password"
+                    value={backupCodesModal.password}
+                    onChange={(e) => setBackupCodesModal((prev) => ({ ...prev, password: e.target.value, error: '' }))}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-xl px-3.5 py-2.5 text-white focus:outline-none focus:border-rose-500 text-xs"
+                  />
+                  {backupCodesModal.error && (
+                    <p className="text-rose-400 text-[11px] mt-1.5">{backupCodesModal.error}</p>
+                  )}
+                </div>
+
+                <div className="pt-2 flex justify-end gap-3 border-t border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setBackupCodesModal({ open: false, codes: [], password: '', error: '', loading: false })}
+                    className="px-4 py-2 rounded-xl bg-slate-800 text-slate-300 font-bold hover:bg-slate-700"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={backupCodesModal.loading}
+                    className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 disabled:opacity-50 text-white font-bold transition-colors shadow-sm"
+                  >
+                    {backupCodesModal.loading ? 'Verifying...' : 'Generate New Codes'}
+                  </button>
+                </div>
+              </form>
+            ) : (
+              <div className="space-y-4">
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-[11px] text-amber-300 flex items-start gap-2">
+                  <AlertTriangle size={15} className="flex-shrink-0 mt-0.5" />
+                  <span>Save these codes now. Old codes are invalidated and each of these 10 codes can only be used once.</span>
+                </div>
+
+                <div className="bg-slate-950 border border-slate-800 rounded-2xl p-4">
+                  <div className="grid grid-cols-2 gap-2 text-center font-mono font-bold text-xs text-slate-200">
+                    {backupCodesModal.codes.map((code, idx) => (
+                      <div key={idx} className="bg-slate-900 border border-slate-800 py-1.5 rounded-lg">
+                        {code}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(backupCodesModal.codes.join('\n'));
+                      setCopiedBackupCodes(true);
+                      showToast('Copied 10 backup codes', 'success');
+                      setTimeout(() => setCopiedBackupCodes(false), 2000);
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl border border-slate-700 transition-colors"
+                  >
+                    {copiedBackupCodes ? <Check size={14} className="text-emerald-400" /> : <Copy size={14} />}
+                    <span>{copiedBackupCodes ? 'Copied' : 'Copy All'}</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const content = `StyleBazaar Admin - 2FA Emergency Backup Codes\nGenerated: ${new Date().toISOString()}\n\n` +
+                        backupCodesModal.codes.map((c, i) => `${i + 1}. ${c}`).join('\n');
+                      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+                      const url = URL.createObjectURL(blob);
+                      const a = document.createElement('a');
+                      a.href = url;
+                      a.download = 'stylebazaar-admin-backup-codes.txt';
+                      a.click();
+                      URL.revokeObjectURL(url);
+                      showToast('Downloaded backup codes (.txt)', 'success');
+                    }}
+                    className="flex-1 flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs py-2.5 rounded-xl border border-slate-700 transition-colors"
+                  >
+                    <Download size={14} />
+                    <span>Download (.txt)</span>
+                  </button>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => setBackupCodesModal({ open: false, codes: [], password: '', error: '', loading: false })}
+                    className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs transition-colors shadow-sm"
+                  >
+                    Done & Saved
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

@@ -12,6 +12,8 @@
     "prisma:migrate": "prisma migrate dev",
     "prisma:push": "prisma db push",
     "prisma:seed": "tsx prisma/seed.ts",
+    "admin:reset-2fa": "tsx scripts/admin-reset-2fa.ts",
+    "admin:create-super-admin": "tsx scripts/admin-create-super-admin.ts",
     "test": "vitest run"
   },
   "dependencies": {

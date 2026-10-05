@@ -12,6 +12,7 @@ enum Role {
   CUSTOMER
   SUPPORT
   ADMIN
+  SUPER_ADMIN
 }
 
 enum Gender {
@@ -85,6 +86,7 @@ model User {
   alternatePhone String?
   avatarUrl      String?
   role           Role      @default(CUSTOMER)
+  isActive       Boolean   @default(true)
   
   isEmailVerified Boolean   @default(false)
   isCodBlocked    Boolean   @default(false)
@@ -93,6 +95,13 @@ model User {
   walletBalanceInPaise Int    @default(0)
   loyaltyPoints        Int    @default(0)
   loyaltyTier          String @default("Silver") // Silver, Gold, Platinum
+
+  twoFactorSecret      String?
+  twoFactorEnabled     Boolean   @default(false)
+  twoFactorBackupCodes String[]  @default([])
+  failedLoginAttempts  Int       @default(0)
+  lockoutUntil         DateTime?
+  customPermissions   String[]  @default([])
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -109,6 +118,10 @@ model User {
   reviews                Review[]
   reviewVotes            ReviewHelpfulVote[]
   auditLogs              AuditLog[]
+  invitedStaff           AdminInvite[]       @relation("InvitedStaff")
+  adminSessions          AdminSession[]
+  approvalRequestsCreated ApprovalRequest[]  @relation("ApprovalRequester")
+  approvalRequestsHandled ApprovalRequest[]  @relation("ApprovalApprover")
 
   @@index([email])
   @@index([role])
@@ -666,12 +679,86 @@ model AuditLog {
   id         String   @id @default(uuid())
   userId     String?
   user       User?    @relation(fields: [userId], references: [id])
-  action     String   // "STATUS_CHANGE", "COD_COLLECTED", "COD_BLOCKED"
-  entityType String   // "ORDER", "USER", "RETURN"
+  action     String   // "STATUS_CHANGE", "COD_COLLECTED", "COD_BLOCKED", "LOGIN_FAILED", "2FA_ENROLL", "PII_REVEAL", etc.
+  entityType String   // "ORDER", "USER", "RETURN", "ADMIN_SESSION", "APPROVAL", "EXPORT"
   entityId   String
   details    Json?
   ipAddress  String?
   createdAt  DateTime @default(now())
 
   @@index([entityType, entityId])
+  @@index([action])
+  @@index([createdAt])
 }
+
+// ==========================================
+// 9. Admin Access Hardening & Governance
+// ==========================================
+
+model AdminInvite {
+  id          String   @id @default(uuid())
+  email       String   @unique
+  role        Role     @default(ADMIN)
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  invitedById String
+  invitedBy   User     @relation("InvitedStaff", fields: [invitedById], references: [id], onDelete: Cascade)
+  isAccepted  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  @@index([tokenHash])
+}
+
+model AdminSession {
+  id           String    @id @default(uuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessionToken String    @unique // SHA-256 hashed
+  ipAddress    String?
+  userAgent    String?
+  lastActiveAt DateTime  @default(now())
+  expiresAt    DateTime
+  isRevoked    Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+
+  @@index([userId])
+  @@index([sessionToken])
+}
+
+model ApprovalRequest {
+  id              String    @id @default(uuid())
+  actionType      String    // "REFUND", "WALLET_ADJUST", "PRICE_BULK_UPDATE", "PRODUCT_DELETE", "ROLE_CHANGE"
+  payload         Json
+  requesterId     String
+  requester       User      @relation("ApprovalRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  approverId      String?
+  approver        User?     @relation("ApprovalApprover", fields: [approverId], references: [id])
+  status          String    @default("PENDING") // PENDING, APPROVED, REJECTED
+  rejectionReason String?
+  executedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([status])
+  @@index([requesterId])
+}
+
+model PriceChangeBatch {
+  id          String    @id @default(uuid())
+  reason      String
+  revertedAt  DateTime?
+  createdBy   String
+  items       Json      // Array of { productId, variantId, oldPrice, newPrice, oldMrp, newMrp }
+  expiresAt   DateTime  // 7 days after creation
+  createdAt   DateTime  @default(now())
+
+  @@index([expiresAt])
+}
+
+model SystemSetting {
+  key       String   @id
+  value     Json
+  updatedBy String?
+  updatedAt DateTime @updatedAt
+}
+

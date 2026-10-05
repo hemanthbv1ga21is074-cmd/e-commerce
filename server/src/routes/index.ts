@@ -14,6 +14,7 @@ import { wishlistRouter } from './wishlist.routes.js';
 import { ordersRouter } from './orders.routes.js';
 import { reviewsRouter } from './reviews.routes.js';
 import { adminRouter } from './admin.routes.js';
+import { adminAuthRouter } from './admin-auth.routes.js';
 
 export const apiRouter = Router();
 
@@ -39,5 +40,6 @@ apiRouter.use('/cart', cartRouter);
 apiRouter.use('/wishlist', wishlistRouter);
 apiRouter.use('/orders', ordersRouter);
 apiRouter.use('/reviews', reviewsRouter);
+apiRouter.use('/admin/auth', adminAuthRouter);
 apiRouter.use('/admin', adminRouter);
 

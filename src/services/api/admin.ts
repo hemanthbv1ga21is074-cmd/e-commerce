@@ -797,14 +797,40 @@ export async function getAdminAnalytics(): Promise<AdminAnalyticsData> {
   });
 }
 
-/* ─── API: Admin Team & Email Access Management ─── */
+/* ─── API: Admin Team, Sessions & Lifecycle Hardening ─── */
 export interface AdminTeamMember {
   id: string;
   email: string;
   name?: string;
-  role: 'ADMIN' | 'SUPPORT';
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT';
+  isActive?: boolean;
+  twoFactorEnabled?: boolean;
   isEmailVerified?: boolean;
   createdAt: string;
+}
+
+export interface AdminInviteItem {
+  id: string;
+  email: string;
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT';
+  invitedBy: string;
+  expiresAt: string;
+  createdAt: string;
+}
+
+export interface AdminSessionItem {
+  id: string;
+  ipAddress?: string;
+  userAgent?: string;
+  lastActiveAt: string;
+  createdAt: string;
+  expiresAt: string;
+  isCurrent?: boolean;
+}
+
+export interface OffboardingTask {
+  task: string;
+  status: string;
 }
 
 const STORAGE_ADMIN_TEAM = 'sb_admin_authorized_emails';
@@ -815,7 +841,15 @@ export function getStoredAdminTeam(): AdminTeamMember[] {
     if (raw) return JSON.parse(raw);
   } catch {}
   return [
-    { id: 'usr-admin-1', email: 'admin@stylebazaar.com', name: 'Store Administrator', role: 'ADMIN', createdAt: '2026-01-01T00:00:00Z' },
+    {
+      id: 'usr-admin-1',
+      email: 'admin@stylebazaar.com',
+      name: 'Store Administrator',
+      role: 'SUPER_ADMIN',
+      isActive: true,
+      twoFactorEnabled: true,
+      createdAt: '2026-01-01T00:00:00Z',
+    },
   ];
 }
 
@@ -837,51 +871,307 @@ export async function getAdminTeam(): Promise<AdminTeamMember[]> {
   );
 }
 
-export async function grantAdminRole(email: string, role: 'ADMIN' | 'SUPPORT' = 'ADMIN'): Promise<boolean> {
+export async function getAdminTeamAndInvites(): Promise<{
+  team: AdminTeamMember[];
+  invites: AdminInviteItem[];
+}> {
+  return apiCall(
+    () => ({
+      team: getStoredAdminTeam(),
+      invites: [],
+    }),
+    async () => {
+      const res = await api<{
+        success: boolean;
+        data: AdminTeamMember[];
+        pendingInvites?: AdminInviteItem[];
+      }>('/admin/team');
+      return {
+        team: res.data,
+        invites: res.pendingInvites || [],
+      };
+    }
+  );
+}
+
+export async function inviteAdminStaff(
+  email: string,
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT'
+): Promise<{ success: boolean; inviteLink: string; expiresAt: string }> {
   return apiCall(
     () => {
       const team = getStoredAdminTeam();
       const norm = email.toLowerCase().trim();
       const exists = team.find((m) => m.email.toLowerCase() === norm);
-      if (exists) {
-        exists.role = role;
-      } else {
+      if (!exists) {
         team.push({
           id: `usr-${Date.now()}`,
           email: norm,
           name: norm.split('@')[0],
           role,
+          isActive: true,
+          twoFactorEnabled: false,
           createdAt: new Date().toISOString(),
         });
+        saveStoredAdminTeam(team);
       }
+      return {
+        success: true,
+        inviteLink: `${window.location.origin}/admin/accept-invite?token=mock_invite_token_${Date.now()}`,
+        expiresAt: new Date(Date.now() + 48 * 3600 * 1000).toISOString(),
+      };
+    },
+    async () => {
+      const res = await api<{ success: boolean; data: any }>('/admin/team/invite', {
+        method: 'POST',
+        body: JSON.stringify({ email, role }),
+      });
+      return res.data;
+    }
+  );
+}
+
+export async function deactivateAdminStaff(
+  targetUserId: string,
+  reason?: string
+): Promise<{ success: boolean; message: string; offboardingChecklist: OffboardingTask[] }> {
+  return apiCall(
+    () => {
+      const team = getStoredAdminTeam().map((m) =>
+        m.id === targetUserId ? { ...m, isActive: false } : m
+      );
+      saveStoredAdminTeam(team);
+      return {
+        success: true,
+        message: 'Staff member deactivated successfully.',
+        offboardingChecklist: [
+          { task: 'All active Admin sessions terminated', status: 'COMPLETED' },
+          { task: 'Storefront refresh tokens revoked', status: 'COMPLETED' },
+          { task: 'Account deactivated (isActive = false)', status: 'COMPLETED' },
+          { task: 'Audit trail record preserved', status: 'COMPLETED' },
+          { task: 'API and store operations blocked', status: 'COMPLETED' },
+        ],
+      };
+    },
+    async () => {
+      return api<{ success: boolean; message: string; offboardingChecklist: OffboardingTask[] }>(
+        '/admin/team/deactivate',
+        {
+          method: 'POST',
+          body: JSON.stringify({ targetUserId, reason }),
+        }
+      );
+    }
+  );
+}
+
+export async function resetAdminStaff2Fa(
+  targetEmail: string
+): Promise<{ success: boolean; message: string }> {
+  return apiCall(
+    () => ({
+      success: true,
+      message: `2FA reset for ${targetEmail}. User must re-enroll on next login.`,
+    }),
+    async () => {
+      return api<{ success: boolean; message: string }>('/admin/team/reset-2fa', {
+        method: 'POST',
+        body: JSON.stringify({ targetEmail }),
+      });
+    }
+  );
+}
+
+export async function changeAdminStaffRole(
+  targetUserId: string,
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT'
+): Promise<boolean> {
+  return apiCall(
+    () => {
+      const team = getStoredAdminTeam().map((m) =>
+        m.id === targetUserId ? { ...m, role } : m
+      );
       saveStoredAdminTeam(team);
       return true;
     },
     async () => {
-      await api('/admin/team/grant', {
+      await api('/admin/team/role', {
         method: 'POST',
-        body: JSON.stringify({ email, role }),
+        body: JSON.stringify({ targetUserId, role }),
       });
       return true;
     }
   );
 }
 
-export async function revokeAdminRole(email: string): Promise<boolean> {
+export async function getAdminSessions(): Promise<AdminSessionItem[]> {
   return apiCall(
-    () => {
-      const team = getStoredAdminTeam();
-      const filtered = team.filter((m) => m.email.toLowerCase() !== email.toLowerCase().trim());
-      saveStoredAdminTeam(filtered);
-      return true;
-    },
+    () => [
+      {
+        id: 'sess-current',
+        ipAddress: '127.0.0.1 (Current)',
+        userAgent: navigator.userAgent,
+        lastActiveAt: new Date().toISOString(),
+        createdAt: new Date(Date.now() - 3600 * 1000).toISOString(),
+        expiresAt: new Date(Date.now() + 11 * 3600 * 1000).toISOString(),
+        isCurrent: true,
+      },
+    ],
     async () => {
-      await api('/admin/team/revoke', {
+      const res = await api<{ success: boolean; data: AdminSessionItem[] }>('/admin/auth/sessions');
+      return res.data;
+    }
+  );
+}
+
+export async function revokeAdminSession(id: string): Promise<boolean> {
+  return apiCall(
+    () => true,
+    async () => {
+      await api(`/admin/auth/sessions/${id}`, { method: 'DELETE' });
+      return true;
+    }
+  );
+}
+
+export async function revokeAllAdminSessions(keepCurrent = true): Promise<boolean> {
+  return apiCall(
+    () => true,
+    async () => {
+      await api('/admin/auth/sessions/revoke-all', {
         method: 'POST',
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ keepCurrent }),
       });
       return true;
     }
   );
 }
+
+export async function regenerateBackupCodes(currentPassword: string): Promise<string[]> {
+  return apiCall(
+    () => [
+      'A1B2-C3D4', 'E5F6-G7H8', 'J9K0-L1M2', 'N3P4-Q5R6', 'S7T8-U9V0',
+      'W1X2-Y3Z4', '2B3C-4D5E', '6F7G-8H9J', '0K1L-2M3N', '4P5Q-6R7S',
+    ],
+    async () => {
+      const res = await api<{ success: boolean; backupCodes: string[] }>(
+        '/admin/auth/regenerate-backup-codes',
+        {
+          method: 'POST',
+          body: JSON.stringify({ currentPassword }),
+        }
+      );
+      return res.backupCodes;
+    }
+  );
+}
+
+export async function validateAdminInvite(token: string): Promise<{
+  valid: boolean;
+  email: string;
+  role: 'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT';
+  invitedBy: string;
+  expiresAt: string;
+}> {
+  return apiCall(
+    () => ({
+      valid: true,
+      email: 'newadmin@stylebazaar.com',
+      role: 'ADMIN' as const,
+      invitedBy: 'Store Administrator',
+      expiresAt: new Date(Date.now() + 40 * 3600 * 1000).toISOString(),
+    }),
+    async () => {
+      const res = await api<{
+        success: boolean;
+        data: {
+          valid: boolean;
+          email: string;
+          role: 'SUPER_ADMIN' | 'ADMIN' | 'SUPPORT';
+          invitedBy: string;
+          expiresAt: string;
+        };
+      }>(`/admin/auth/validate-invite?token=${encodeURIComponent(token)}`);
+      return res.data;
+    }
+  );
+}
+
+export async function setupAdmin2Fa(token: string): Promise<{
+  email: string;
+  role: string;
+  secret: string;
+  otpauthUrl: string;
+}> {
+  return apiCall(
+    () => ({
+      email: 'newadmin@stylebazaar.com',
+      role: 'ADMIN',
+      secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+      otpauthUrl: 'otpauth://totp/StyleBazaar:newadmin@stylebazaar.com?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=StyleBazaar',
+    }),
+    async () => {
+      const res = await api<{ success: boolean; data: any }>('/admin/auth/setup-2fa', {
+        method: 'POST',
+        body: JSON.stringify({ token }),
+      });
+      return res.data;
+    }
+  );
+}
+
+export async function acceptAdminInvite(params: {
+  token: string;
+  name: string;
+  password: string;
+  totpSecret: string;
+  totpCode: string;
+}): Promise<{
+  success: boolean;
+  user: any;
+  backupCodes: string[];
+}> {
+  return apiCall(
+    () => ({
+      success: true,
+      user: {
+        id: 'usr-invited-1',
+        email: 'newadmin@stylebazaar.com',
+        name: params.name || 'New Admin',
+        role: 'ADMIN',
+      },
+      backupCodes: [
+        '9A8B-7C6D', '5E4F-3G2H', '1J0K-9L8M', '7N6P-5Q4R', '3S2T-1U0V',
+        '8W7X-6Y5Z', '4B3C-2D1E', '9F8G-7H6J', '5K4L-3M2N', '1P0Q-9R8S',
+      ],
+    }),
+    async () => {
+      return api<{ success: boolean; user: any; backupCodes: string[] }>(
+        '/admin/auth/accept-invite',
+        {
+          method: 'POST',
+          body: JSON.stringify(params),
+        }
+      );
+    }
+  );
+}
+
+export async function grantAdminRole(
+  email: string,
+  role: 'ADMIN' | 'SUPPORT' = 'ADMIN'
+): Promise<boolean> {
+  await inviteAdminStaff(email, role);
+  return true;
+}
+
+export async function revokeAdminRole(email: string): Promise<boolean> {
+  const team = await getAdminTeam();
+  const found = team.find((m) => m.email.toLowerCase() === email.toLowerCase().trim());
+  if (found) {
+    await deactivateAdminStaff(found.id, 'Role revoked via team settings');
+  }
+  return true;
+}
+
 
